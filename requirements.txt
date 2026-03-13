@@ -1,0 +1,21 @@
+# 核心依赖
+torch>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+tqdm>=4.65.0
+
+# 数据处理
+pandas>=2.0.3
+shapely>=2.0.5
+
+# 配置管理
+pyyaml>=6.0.2
+dacite>=1.8.0
+
+# 存储（可选）
+happybase>=1.2.0
+
+# 测试依赖
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0

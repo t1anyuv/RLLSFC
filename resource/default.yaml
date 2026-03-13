@@ -1,0 +1,68 @@
+# TShape索引系统默认配置
+# 使用方法: config = TShapeConfig.from_yaml('configs/default.yaml')
+
+index:
+  max_level: 8
+  alpha: 2
+  beta: 2
+  min_x: 115.29
+  min_y: 39.00
+  max_x: 117.83
+  max_y: 41.50
+  use_original_bbox: true
+  use_prune: true
+  min_cell_trajs: 0
+  baseline_include_muted: false
+  enable_sig_optimize: false
+
+data:
+  num_trajectories: 3000
+  use_tdrive_data: true
+  use_similarity_matrix: true
+  similarity_matrix_path: null
+  
+  # 轨迹存储配置
+  # storage_mode: 存储模式选择
+  #   - "memory": 全内存存储，适合小数据集（<5GB），访问速度最快
+  #   - "disk": 磁盘存储+LRU缓存，适合大数据集（30GB+），内存占用可控
+  #   - "auto": 根据预估数据量自动选择（默认）
+  storage_mode: "auto"
+  storage_dir: null  # 磁盘存储目录，null则使用默认路径 resource/storage/
+  disk_cache_mb: 2048  # 磁盘模式LRU缓存大小（MB），默认2GB
+
+reward:
+  tau_loc: 1.0
+  tau_scan: 0.1
+  local_reward_weight: 0.4
+  global_reward_weight: 1.0
+  global_reward_scale: 2.0
+  global_reward_num_evals: 1
+  query_dataset_path: "resource/queries"
+  query_distribution_type: "uniform"
+  train_val_test_split: [0.6, 0.2, 0.2]
+
+network:
+  hidden_dims: [256, 256]
+  device: auto
+  dropout: 0.1
+  state_dim: 14
+
+train:
+  lr_actor: 0.0003
+  lr_critic: 0.0003
+  gamma: 0.99
+  num_episodes: 1000
+  eval_interval: 20
+  save_interval: 100
+  topk_actions: null
+  topk_decay_episodes: 100
+  topk_multipliers: [2.0, 1.0]
+  enable_early_stopping: true
+  early_stopping_patience: 15
+  early_stopping_min_delta: 0.01
+  max_negative_streak: 5
+
+paths:
+  resource_base_dir: resource
+  tdrive_data_dir: 'D:\dataset\Trajectory\TDrive\complete_clean'
+  tdrive_data_path: 'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt'
