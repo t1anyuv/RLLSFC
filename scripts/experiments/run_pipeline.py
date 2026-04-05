@@ -1,4 +1,4 @@
-"""统一实验运行脚本：使用LSFCPipeLine进行模型训练与顺序导出
+﻿"""统一实验运行脚本：使用LSFCPipeLine进行模型训练与顺序导出
 
 Usage:
     python -m scripts.experiments.run_pipeline --config resource/experiments/test/config.yaml --name test
@@ -48,7 +48,7 @@ def run_rl_indexing_experiment(config_path: str, exp_name: str, nt_config: Netwo
         )
 
     # 4. 初始化流水线
-    export_prefix = f"learned_order_{exp_name}_{timestamp}"
+    export_prefix = f"quadorder_{exp_name}_{timestamp}"
 
     pipeline = LSFCPipeLine(
         ts_config,
@@ -81,12 +81,12 @@ def run_rl_indexing_experiment(config_path: str, exp_name: str, nt_config: Netwo
         print(f" 实验摘要 - {timestamp} ")
         print("-" * 50)
         print(f"模型保存路径: {models_dir}")
-        print(f"学习节点总数: {results['learned_order_length']}")
+        print(f"学习节点总数: {results['quadorder_length']}")
         improvement_rate = results.get('improvement_rate', None)
         if improvement_rate is not None:
-            print(f"改进率 (vs Z-Order): {improvement_rate:.2f}%")
+            print(f"改进率 (vs QuadCode): {improvement_rate:.2f}%")
         else:
-            print(f"改进率 (vs Z-Order): N/A")
+            print(f"改进率 (vs QuadCode): N/A")
 
         print("\n导出文件状态:")
         for fname in check_files:
@@ -154,3 +154,4 @@ if __name__ == "__main__":
 
     # 运行实验
     run_rl_indexing_experiment(args.config, args.name, network_config)
+

@@ -42,6 +42,27 @@ class QuadTreeCell:
             code += term
         return code
 
+    @staticmethod
+    def encode_full_quadrant_path(quadrants: List[int], max_level: int) -> int:
+        """长度为 max_level 的象限路径对应的 TShape quadCode（叶层编码）。"""
+        if len(quadrants) != max_level:
+            raise ValueError(f"路径长度 {len(quadrants)} 与 max_level {max_level} 不一致")
+        code = 0
+        for i, quadrant in enumerate(quadrants, 1):
+            term = quadrant * ((4 ** (max_level - i + 1) - 1) // 3) + 1
+            code += term
+        return code
+
+    @staticmethod
+    def subtree_leaf_quad_codes(prefix: List[int], max_level: int) -> Tuple[int, int]:
+        """(quad.elementCode << mb, ((quad.elementCode + IS(level)) << mb) - 1)"""
+        if len(prefix) > max_level:
+            raise ValueError("prefix 长度超过 max_level")
+        pad = max_level - len(prefix)
+        lo = QuadTreeCell.encode_full_quadrant_path(list(prefix) + [0] * pad, max_level)
+        hi_inclusive = QuadTreeCell.encode_full_quadrant_path(list(prefix) + [3] * pad, max_level)
+        return lo, hi_inclusive + 1
+
     def get_enlarged_element_bbox(self, alpha: int, beta: int) -> SpatialBoundingBox:
         """返回按 alpha×beta 放大的元素边界框。"""
 

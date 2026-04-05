@@ -43,7 +43,7 @@ class TestStateFeatureReasonableness(unittest.TestCase):
         cls.static_feature_names = [
             "N_ee", "N_ee / N_int", "N_cov / N_int", "d_center",
             "Δx", "Δy", "Δdx", "Δdy",
-            "S", "qcode"
+            "S", "qcode",
         ]
 
     def test_feature_statistics_report(self):
@@ -88,8 +88,8 @@ class TestStateFeatureReasonableness(unittest.TestCase):
         # 模拟从 A 移动到 B
         feat = self.builder.get_features(cell_end, prev_cell=cell_start, visited_ratio=0.5, visited_cells=set())
 
-        # 获取 Δx_rel (index 12), Δy_rel (index 13)
-        dx_rel, dy_rel = feat[12], feat[13]
+        # 获取 dynamic 中的 Δx_rel (index 11), Δy_rel (index 12)
+        dx_rel, dy_rel = feat[11], feat[12]
 
         # 手动计算
         c1x, c1y = cell_end.get_center()

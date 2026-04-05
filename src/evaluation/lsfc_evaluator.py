@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +37,7 @@ class LSFCEvaluator:
         )
 
         # 状态缓存
-        self.learned_order: Optional[List[Any]] = None
+        self.quadorder: Optional[List[Any]] = None
         self.best_model_path: Optional[Path] = None
         self.processing_metadata: Dict[str, Any] = {}
 
@@ -131,11 +131,11 @@ class LSFCEvaluator:
         # 2. 加载模型并生成遍历顺序
         pipeline.load_trained_model(str(best_model_path))
         pipeline.trainer.agent.actor.eval()
-        learned_order = pipeline.generate_learned_order()
+        quadorder = pipeline.generate_quadorder()
         
         # 3. 更新状态
         self.best_model_path = best_model_path
-        self.learned_order = learned_order
+        self.quadorder = quadorder
         self.processing_metadata["evaluation"] = {
             'i_val': best_record['val_improvement'],
             'i_test': best_record['test_improvement'],
@@ -146,7 +146,7 @@ class LSFCEvaluator:
         }
         self.processing_metadata.update({
             "timestamp": datetime.now().isoformat(),
-            "learned_order_length": len(learned_order),
+            "quadorder_length": len(quadorder),
             "quadtree_stats": pipeline.trainer.quadtree.get_quadtree_stats(),
         })
         
@@ -185,26 +185,26 @@ class LSFCEvaluator:
         return TraversalPerformanceEvaluator(
             trainer.quadtree, trainer.encoder, trainer.cost_evaluator,
             reference_queries=queries,
-            baseline_include_muted=self.config.index.baseline_include_muted
+            quadcode_include_muted=self.config.index.quadcode_include_muted
         )
 
-    def process_learned_order(self, learned_order: List[Any], quadtree: QuadTreeIndex):
+    def process_quadorder(self, quadorder: List[Any], quadtree: QuadTreeIndex):
         """缓存推理结果并记录元数据。"""
-        self.learned_order = learned_order
+        self.quadorder = quadorder
         self.processing_metadata.update({
             "timestamp": datetime.now().isoformat(),
-            "learned_order_length": len(learned_order),
+            "quadorder_length": len(quadorder),
             "quadtree_stats": quadtree.get_quadtree_stats(),
             "config_summary": self.get_config_summary(),
         })
 
-    def export_formats(self, trainer: TraversalTrainer, base_prefix: str = "learned_order") -> Dict[str, Any]:
+    def export_formats(self, trainer: TraversalTrainer, base_prefix: str = "quadorder") -> Dict[str, Any]:
         """导出多格式文件并触发报告打印。"""
-        if not self.learned_order:
-            raise RuntimeError("导出前必须先执行推断或 process_learned_order")
+        if not self.quadorder:
+            raise RuntimeError("导出前必须先执行推断或 process_quadorder")
 
         environment = trainer.environment
-        environment.visited_order = self.learned_order
+        environment.visited_order = self.quadorder
 
         data, json_path = self.trajectory_processor.generate_config_file(
             environment, trainer.quadtree,
@@ -227,8 +227,8 @@ class LSFCEvaluator:
         返回:
             导出结果字典
         """
-        if not self.learned_order:
-            raise RuntimeError("导出前必须先执行推断或 process_learned_order")
+        if not self.quadorder:
+            raise RuntimeError("导出前必须先执行推断或 process_quadorder")
         
         # 生成带时间戳的文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -236,7 +236,7 @@ class LSFCEvaluator:
         base_prefix = f"{exp_name}_final_{timestamp}"
         
         environment = trainer.environment
-        environment.visited_order = self.learned_order
+        environment.visited_order = self.quadorder
         
         # 生成配置文件
         data, json_path = self.trajectory_processor.generate_config_file(
@@ -249,8 +249,8 @@ class LSFCEvaluator:
         order_data = {
             "experiment_name": exp_name,
             "timestamp": timestamp,
-            "order_length": len(self.learned_order),
-            "learned_order": [cell.code for cell in self.learned_order if hasattr(cell, 'code')],
+            "order_length": len(self.quadorder),
+            "quadorder": [cell.code for cell in self.quadorder if hasattr(cell, 'code')],
         }
         with open(order_only_path, 'w', encoding='utf-8') as f:
             json.dump(order_data, f, indent=2, ensure_ascii=False)
@@ -286,7 +286,7 @@ class LSFCEvaluator:
             f" Unified RL Post-Evaluation Report ".center(65, " "),
             "-" * 65,
             f" Best Model:      {self.best_model_path.name if self.best_model_path else 'N/A'}",
-            f" Order Length:    {self.processing_metadata.get('learned_order_length', 'N/A')} "
+            f" Order Length:    {self.processing_metadata.get('quadorder_length', 'N/A')} "
             f"(Active: {qs.get('active_cells', 'N/A')})",
             "-" * 65,
             f" Train Improvement: {train_imp:>7.2f}%" if train_imp else " Train Improvement:    N/A",
@@ -301,8 +301,8 @@ class LSFCEvaluator:
         val_metrics = eval_m.get('val_metrics')
         if val_metrics:
             report.extend([
-                f" Baseline Cost:    {val_metrics.get('baseline_avg_cost', 'N/A'):>10.2f}",
-                f" Learned Cost:     {val_metrics.get('learned_avg_cost', 'N/A'):>10.2f}",
+                f" QuadCode Cost:    {val_metrics.get('quadcode_avg_cost', 'N/A'):>10.2f}",
+                f" QuadOrder Cost:   {val_metrics.get('quadorder_avg_cost', 'N/A'):>10.2f}",
             ])
         
         report.extend([
@@ -335,7 +335,7 @@ class LSFCEvaluator:
         return TraversalPerformanceEvaluator(
             trainer.quadtree, trainer.encoder, trainer.cost_evaluator,
             reference_queries=reference_queries,
-            baseline_include_muted=self.config.index.baseline_include_muted
+            quadcode_include_muted=self.config.index.quadcode_include_muted
         )
 
     def generate_test_queries(self, quadtree: QuadTreeIndex):
@@ -369,3 +369,4 @@ class LSFCEvaluator:
         
         self.logger.warning(f"查询集文件不存在: {query_path}")
         return None
+

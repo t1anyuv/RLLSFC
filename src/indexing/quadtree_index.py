@@ -1,4 +1,4 @@
-"""
+﻿"""
 优化后的四叉树空间索引。
 通过 (level, x_index, y_index) 实现 O(1) 单元格定位，并优化了剪枝与相交判定效率。
 """
@@ -26,8 +26,6 @@ class QuadTreeIndex:
     """
     # 几何计算精度
     GEOMETRY_EPSILON = 1e-10
-    # 最大形状数量缩放因子
-    MAX_SHAPE_SCALE_FACTOR = 1.5
 
     def __init__(self, bbox: SpatialBoundingBox, max_level: int, alpha=2, beta=2, 
                  storage: Optional[TrajectoryStorage] = None,
@@ -37,7 +35,8 @@ class QuadTreeIndex:
         self.max_level = max_level
         self.alpha = alpha
         self.beta = beta
-        self.max_shape_num = 0
+        self.width = self.bbox.max_x - self.bbox.min_x
+        self.height = self.bbox.max_y - self.bbox.min_y
         self._next_code = 0
 
         # 使用 (level, [grid]) 作为键
@@ -266,9 +265,6 @@ class QuadTreeIndex:
             "shrunk_beta": result["shrunk_beta"],
             "both_shrunk": result["both_shrunk"]
         })
-        
-        # 更新最大形状数量
-        self.max_shape_num = result["max_shape_num"]
 
     def post_prune_tree(self, min_cell_trajs: int = 1) -> Dict[str, int]:
         """执行后序遍历剪枝，根据轨迹密度合并节点并重构索引。
@@ -339,7 +335,6 @@ class QuadTreeIndex:
                 f"Beta收缩={opt_stats['shrunk_beta']}, 同时收缩={opt_stats['both_shrunk']}"
             )
 
-        self.logger.info(f"[Optimize] 当前全局最大形状数量 (max_shape_num): {self.max_shape_num}")
         return opt_stats
 
     def assign_trajectory(self, traj_id: int, points: List[Tuple[float, float]]) -> None:

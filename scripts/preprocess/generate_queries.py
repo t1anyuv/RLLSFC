@@ -1,4 +1,6 @@
-"""生成查询数据集脚本
+r"""生成查询数据集脚本（通用版本）
+
+支持多种数据集，通过参数指定配置。
 
 生成三种分布类型的查询数据集：
 1. uniform: 均匀分布（从轨迹点均匀采样）
@@ -9,29 +11,46 @@
 每个范围生成100个查询, 每种类型共500个查询
 
 使用示例:
-    # TDrive (北京) - 默认
-    python scripts/preprocess/generate_query_dataset.py
+    # TDrive (北京) - 使用预设配置
+    python scripts/preprocess/generate_queries.py --dataset tdrive
     
-    # 成都数据集
-    python scripts/preprocess/generate_query_dataset.py --min-lon 104.04 --min-lat 30.65 --max-lon 104.13 --max-lat 30.73 --output-dir resource/queries_chengdu --traj-path D:\dataset\Trajectory\Chengdu\complete_clean\chengdu.txt
+    # 成都数据集 - 使用预设配置
+    python scripts/preprocess/generate_queries.py --dataset chengdu
+    
+    # 自定义参数
+    python scripts/preprocess/generate_queries.py \
+        --min-lon 115.29 --min-lat 39.00 --max-lon 117.83 --max-lat 41.50 \
+        --traj-path D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt \
+        --output-dir resource/queries_tdrive
 """
 import argparse
 import random
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional
-import re
 from collections import defaultdict
+import json
 
 
-# 默认边界框（TDrive - 北京）
-DEFAULT_MIN_LON = 115.29
-DEFAULT_MIN_LAT = 39.00
-DEFAULT_MAX_LON = 117.83
-DEFAULT_MAX_LAT = 41.50
-
-# 默认轨迹数据路径
-DEFAULT_TRAJ_PATH = r'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt'
+# 预定义数据集配置
+DATASET_CONFIGS = {
+    'tdrive': {
+        'min_lon': 115.29,
+        'min_lat': 39.00,
+        'max_lon': 117.83,
+        'max_lat': 41.50,
+        'traj_path': r'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt',
+        'output_dir': 'resource/queries',
+    },
+    'chengdu': {
+        'min_lon': 104.04,
+        'min_lat': 30.65,
+        'max_lon': 104.13,
+        'max_lat': 30.73,
+        'traj_path': r'D:\dataset\Trajectory\Chengdu\cleaned_cd_taxi.txt',
+        'output_dir': 'resource/queries_chengdu',
+    },
+}
 
 # 查询范围（米）
 QUERY_RANGES = [100, 500, 1000, 1500, 2000]
@@ -41,7 +60,7 @@ QUERIES_PER_RANGE = 100
 class QueryGenerator:
     """查询生成器 - 从轨迹数据中采样生成查询"""
     
-    def __init__(self, min_lon: float, min_lat: float, max_lon: float, max_lat: float, 
+    def __init__(self, min_lon: float, min_lat: float, max_lon: float, max_lat: float,
                  output_dir: Path, traj_path: Optional[str] = None):
         self.min_lon = min_lon
         self.min_lat = min_lat
@@ -63,7 +82,7 @@ class QueryGenerator:
         self.traj_std_lon = np.std(lons) if np.std(lons) > 0 else (max_lon - min_lon) / 4
         self.traj_std_lat = np.std(lats) if np.std(lats) > 0 else (max_lat - min_lat) / 4
         
-        # 计算热点区域（用于偏斜分布）- 使用网格密度
+        # 计算热点区域（用于偏斜分布）
         self.hotspot_points = self._compute_hotspot_points()
         
         print(f"已加载 {len(self.traj_points)} 个轨迹点")
@@ -134,7 +153,7 @@ class QueryGenerator:
             hotspot_points.extend(pts)
         
         return hotspot_points if hotspot_points else self.traj_points
-        
+    
     def meters_to_degrees(self, meters: float, latitude: float) -> Tuple[float, float]:
         """将米转换为经纬度偏移量"""
         lat_offset = meters / 111000.0
@@ -145,7 +164,6 @@ class QueryGenerator:
         """生成均匀分布的查询 - 从所有轨迹点均匀采样"""
         queries = []
         for _ in range(num_queries):
-            # 从轨迹点中随机选择中心
             center_lon, center_lat = random.choice(self.traj_points)
             lon_offset, lat_offset = self.meters_to_degrees(range_meters / 2, center_lat)
             min_lon = max(self.min_lon, center_lon - lon_offset)
@@ -160,11 +178,9 @@ class QueryGenerator:
         queries = []
         
         for _ in range(num_queries):
-            # 80%的查询在热点区域（轨迹密集处）
             if random.random() < 0.8 and self.hotspot_points:
                 center_lon, center_lat = random.choice(self.hotspot_points)
             else:
-                # 20%在所有轨迹点中随机
                 center_lon, center_lat = random.choice(self.traj_points)
             
             lon_offset, lat_offset = self.meters_to_degrees(range_meters / 2, center_lat)
@@ -180,11 +196,9 @@ class QueryGenerator:
         queries = []
         
         for _ in range(num_queries):
-            # 使用轨迹点的实际分布参数生成中心
             query_center_lon = np.random.normal(self.traj_center_lon, self.traj_std_lon)
             query_center_lat = np.random.normal(self.traj_center_lat, self.traj_std_lat)
             
-            # 确保在边界内
             query_center_lon = np.clip(query_center_lon, self.min_lon, self.max_lon)
             query_center_lat = np.clip(query_center_lat, self.min_lat, self.max_lat)
             
@@ -198,8 +212,6 @@ class QueryGenerator:
 
     def run(self):
         """运行生成"""
-        import json
-        
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         distributions = {
@@ -250,27 +262,53 @@ class QueryGenerator:
         print(f"\n✓ 查询数据集生成完成！")
         print(f"  边界框: [{self.min_lon}, {self.min_lat}, {self.max_lon}, {self.max_lat}]")
         print(f"  输出目录: {self.output_dir}")
+        print(f"  文件结构:")
+        print(f"    range/[distribution]/[distribution]_[range]m.txt - 分类型分范围文件（各100条）")
+        print(f"    gaussian/ | skewed/ | uniform/")
+        print(f"      - queries_train.json (350 条)")
+        print(f"      - queries_val.json (75 条)")
+        print(f"      - queries_test.json (75 条)")
 
 
 def main():
     parser = argparse.ArgumentParser(description='生成查询数据集（基于轨迹数据采样）')
-    parser.add_argument('--min-lon', type=float, default=DEFAULT_MIN_LON, help='最小经度')
-    parser.add_argument('--min-lat', type=float, default=DEFAULT_MIN_LAT, help='最小纬度')
-    parser.add_argument('--max-lon', type=float, default=DEFAULT_MAX_LON, help='最大经度')
-    parser.add_argument('--max-lat', type=float, default=DEFAULT_MAX_LAT, help='最大纬度')
-    parser.add_argument('--output-dir', type=str, default='resource/queries', help='输出目录')
-    parser.add_argument('--traj-path', type=str, default=DEFAULT_TRAJ_PATH, 
-                        help='轨迹数据文件路径')
+    parser.add_argument('--dataset', type=str, choices=['tdrive', 'chengdu'],
+                        help='使用预定义数据集配置 (tdrive/chengdu)')
+    parser.add_argument('--min-lon', type=float, help='最小经度')
+    parser.add_argument('--min-lat', type=float, help='最小纬度')
+    parser.add_argument('--max-lon', type=float, help='最大经度')
+    parser.add_argument('--max-lat', type=float, help='最大纬度')
+    parser.add_argument('--traj-path', type=str, help='轨迹数据文件路径')
+    parser.add_argument('--output-dir', type=str, help='输出目录')
     
     args = parser.parse_args()
     
+    # 如果使用预定义数据集
+    if args.dataset:
+        config = DATASET_CONFIGS[args.dataset]
+        min_lon = config['min_lon']
+        min_lat = config['min_lat']
+        max_lon = config['max_lon']
+        max_lat = config['max_lat']
+        traj_path = config['traj_path']
+        output_dir = Path(config['output_dir'])
+        print(f"使用预定义配置: {args.dataset}")
+    else:
+        # 使用命令行参数或默认值
+        min_lon = args.min_lon or 115.29
+        min_lat = args.min_lat or 39.00
+        max_lon = args.max_lon or 117.83
+        max_lat = args.max_lat or 41.50
+        traj_path = args.traj_path or r'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt'
+        output_dir = Path(args.output_dir or 'resource/queries')
+    
     generator = QueryGenerator(
-        min_lon=args.min_lon,
-        min_lat=args.min_lat,
-        max_lon=args.max_lon,
-        max_lat=args.max_lat,
-        output_dir=Path(args.output_dir),
-        traj_path=args.traj_path
+        min_lon=min_lon,
+        min_lat=min_lat,
+        max_lon=max_lon,
+        max_lat=max_lat,
+        output_dir=output_dir,
+        traj_path=traj_path
     )
     generator.run()
 

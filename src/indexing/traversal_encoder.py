@@ -40,20 +40,17 @@ class TraversalOrderEncoder:
         dfs(self.quadtree.root)
         return ordered_cells
 
-    def load_learned_order_mapping(self, filepath: Union[str, Path]) -> None:
+    def load_quadorder_mapping(self, filepath: Union[str, Path]) -> None:
         """加载学习到的顺序映射文件（JSON或CSV）"""
         self._order_loader = LSFCMappingLoader()
         filepath = Path(filepath)
 
         if filepath.suffix.lower() == '.json':
             self._order_loader.load_from_json(filepath)
-        elif filepath.suffix.lower() == '.csv':
-            # CSV格式需要max_level参数，从quadtree获取
-            self._order_loader.load_from_csv(filepath, max_level=self.quadtree.max_level)
         else:
-            raise ValueError(f"不支持的文件格式: {filepath.suffix}，请使用 .json 或 .csv")
+            raise ValueError(f"不支持的文件格式: {filepath.suffix}，请使用 .json")
 
-    def learned_order(self, include_muted: bool = False) -> Optional[List[QuadTreeCell]]:
+    def quadorder(self, include_muted: bool = False) -> Optional[List[QuadTreeCell]]:
         """根据加载的学习顺序映射，返回排序后的单元格列表"""
         if self._order_loader is None or not self._order_loader.is_loaded():
             return None
@@ -67,7 +64,7 @@ class TraversalOrderEncoder:
         # 使用优化后的映射加载器进行排序
         return self._order_loader.get_ordered_cells(all_cells)
 
-    def encode_with_learned_order(self, include_muted: bool = False) -> Optional[Dict[QuadTreeCell, int]]:
+    def encode_with_quadorder(self, include_muted: bool = False) -> Optional[Dict[QuadTreeCell, int]]:
         """使用学习到的顺序对单元格进行编码"""
         if self._order_loader is None or not self._order_loader.is_loaded():
             return None

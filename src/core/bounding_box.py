@@ -7,7 +7,7 @@ from typing import Tuple
 
 @dataclass
 class SpatialBoundingBox:
-    """Axis aligned bounding box in the unit space."""
+    """Axis index bounding box in the unit space."""
 
     min_x: float
     min_y: float

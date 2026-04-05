@@ -34,8 +34,6 @@ def test_config():
             use_similarity_matrix=False
         ),
         reward=RewardConfig(
-            tau_loc=1.0,
-            tau_scan=0.1,
             query_dataset_path="resource/queries",
             query_distribution_type="uniform"
         ),

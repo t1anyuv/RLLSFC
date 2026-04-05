@@ -131,7 +131,6 @@ class TestCompatibility:
         assert test_config.alpha == test_config.index.alpha
         assert test_config.beta == test_config.index.beta
         assert test_config.num_trajectories == test_config.data.num_trajectories
-        assert test_config.tau_loc == test_config.reward.tau_loc
         assert test_config.num_episodes == test_config.train.num_episodes
     
     def test_get_original_bbox(self, test_config):
@@ -139,3 +138,29 @@ class TestCompatibility:
         bbox = test_config.get_original_bbox()
         assert bbox.min_x == test_config.index.min_x
         assert bbox.max_y == test_config.index.max_y
+
+
+class TestSimilarityMatrixPaths:
+    """测试相似度矩阵默认命名与路径解析。"""
+
+    def test_default_similarity_matrix_filename(self):
+        config = TShapeConfig(
+            index=IndexConfig(max_level=9, alpha=3, beta=5),
+            data=DataConfig(num_trajectories=-1),
+        )
+        assert config.get_default_similarity_matrix_filename() == "sim_mtx_L9_A3_B5_T-1.npz"
+
+    def test_effective_similarity_matrix_path_uses_default_name(self, test_config):
+        matrix_path = test_config.get_effective_similarity_matrix_path()
+        assert matrix_path.name == "sim_mtx_L4_A2_B2_T100.npz"
+        assert "shared" in str(matrix_path)
+        assert "similarity" in str(matrix_path)
+
+    def test_explicit_similarity_matrix_path_supports_nested_relative_path(self):
+        config = TShapeConfig(
+            data=DataConfig(similarity_matrix_path="resource/experiments/demo/sim/custom.npz")
+        )
+        matrix_path = config.get_effective_similarity_matrix_path()
+        assert matrix_path.name == "custom.npz"
+        assert "resource" in str(matrix_path)
+        assert "experiments" in str(matrix_path)

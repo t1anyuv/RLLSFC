@@ -1,4 +1,4 @@
-"""轨迹顺序格式化工具函数。"""
+﻿"""轨迹顺序格式化工具函数。"""
 from typing import Any, Dict, List, Tuple, Optional
 
 from src.indexing.quadtree_cell import QuadTreeCell

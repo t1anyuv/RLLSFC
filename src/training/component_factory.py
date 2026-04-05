@@ -12,7 +12,6 @@ from src.indexing import QuadTreeIndex
 from src.reward import TraversalCostEvaluator
 from src.rl import TraversalEnvironment
 from src.storage import create_storage
-from src.utils.path_manager import get_path_manager
 from src.utils.similarity_matrix import SimilarityMatrix
 
 
@@ -106,24 +105,29 @@ class TrainingComponentFactory:
         # 加载查询数据集并划分
         train_queries, val_queries, test_queries = self._load_and_split_queries()
 
-        # 构建环境实例（使用训练集计算全局奖励）
+        # 构建环境实例
         env = TraversalEnvironment(
             quadtree=quadtree,
             cost_evaluator=cost_evaluator,
             reference_queries=train_queries,
+            val_queries=val_queries,
+            test_queries=test_queries,
             alpha=self.config.index.alpha,
             beta=self.config.index.beta,
             exclude_muted_cells=self.config.index.use_prune,
-            baseline_include_muted=self.config.index.baseline_include_muted,
+            quadcode_include_muted=self.config.index.quadcode_include_muted,
             local_reward_weight=self.config.reward.local_reward_weight,
             global_reward_weight=self.config.reward.global_reward_weight,
+            reward_schedule_episodes=self.config.reward.reward_schedule_episodes,
+            local_reward_start_scale=self.config.reward.local_reward_start_scale,
+            global_reward_start_scale=self.config.reward.global_reward_start_scale,
+            global_reward_scale=self.config.reward.global_reward_scale,
             global_reward_num_evals=self.config.reward.global_reward_num_evals,
+            global_reward_query_sample_size=self.config.reward.global_reward_query_sample_size,
+            global_reward_frontload_exponent=self.config.reward.global_reward_frontload_exponent,
         )
 
         # 将验证集和测试集附加到环境
-        env.val_queries = val_queries
-        env.test_queries = test_queries
-
         return env
 
     def _load_and_split_queries(self) -> Tuple[List, List, List]:
@@ -219,21 +223,31 @@ class TrainingComponentFactory:
             return None
 
         similarity_matrix = SimilarityMatrix(quadtree, cost_evaluator)
-        pm = get_path_manager()
+        uses_explicit_path = bool(self.config.data.similarity_matrix_path)
+        matrix_path = self.config.get_effective_similarity_matrix_path()
 
-        if self.config.data.similarity_matrix_path:
-            matrix_path = self.config.data.get_similarity_matrix_path()
-        else:
-            sim_dir = pm.get_similarity_dir()
-            # 生成默认文件名
-            matrix_path = sim_dir / f"similarity_matrix_L{self.config.index.max_level}_A{self.config.index.alpha}_B{self.config.index.beta}_M{self.config.index.min_cell_trajs or 0}_T{self.config.data.num_trajectories}.npz"
+        if not uses_explicit_path:
             print(f"使用默认相似度矩阵路径: {matrix_path}")
 
         if os.path.exists(matrix_path):
             print(f"加载相似度矩阵: {matrix_path}")
             if not similarity_matrix.load(matrix_path, all_cells):
-                print("矩阵维度不匹配，重新计算...")
-                self._compute_and_save_similarity_matrix(similarity_matrix, matrix_path, all_cells)
+                if uses_explicit_path:
+                    print("矩阵维度不匹配，重新计算并覆盖指定文件...")
+                    self._compute_and_save_similarity_matrix(similarity_matrix, matrix_path, all_cells)
+                else:
+                    fallback_path = self.config.get_experiment_similarity_matrix_path()
+                    print(
+                        "共享相似度矩阵与当前单元格集合不匹配，"
+                        f"将使用实验私有矩阵: {fallback_path}"
+                    )
+                    if os.path.exists(fallback_path):
+                        print(f"尝试加载实验私有相似度矩阵: {fallback_path}")
+                        if not similarity_matrix.load(fallback_path, all_cells):
+                            print("实验私有矩阵也不匹配，重新计算...")
+                            self._compute_and_save_similarity_matrix(similarity_matrix, fallback_path, all_cells)
+                    else:
+                        self._compute_and_save_similarity_matrix(similarity_matrix, fallback_path, all_cells)
         else:
             self._compute_and_save_similarity_matrix(similarity_matrix, matrix_path, all_cells)
 

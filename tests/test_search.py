@@ -25,8 +25,7 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
         print("Pre-loading TDrive data...")
         pm = get_path_manager()
         tdrive_path = pm.tdrive_data_path or os.environ.get('TDRIVE_DATA_PATH',
-                                                            r'D:\Dataset\Trajectory\TDrive\complete\tdrive_cleaned'
-                                                            r'.txt')
+                                                            r'D:\Dataset\Trajectory\TDrive\complete_clean\tdrive.txt')
         cls.raw_trajectories = load_cleaned_dataset(
             str(tdrive_path),
             max_trajectories=None
@@ -85,7 +84,7 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
 
         for i, q_bbox in enumerate(self.test_queries):
             expected = self.brute_force_search(index, q_bbox)
-            _, candidate_ids = evaluator.tshape_search_debug(q_bbox, z_order, -1, skip_muted=True)
+            _, candidate_ids, _ = evaluator.search_quadcode_intervals(q_bbox, z_order, skip_muted=True)
 
             # 精筛
             actual = set()

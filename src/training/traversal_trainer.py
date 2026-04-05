@@ -1,4 +1,4 @@
-"""
+﻿"""
 训练循环协调器：负责数据加载、环境创建和强化学习更新。
 """
 import os
@@ -29,13 +29,13 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 class TraversalTrainer:
     """训练循环协调器。
-    
+
     负责协调整个训练流程，包括环境初始化、智能体训练、评估和检查点保存。
     """
 
     def __init__(self, config: TShapeConfig, network_config: Optional[NetworkConfig] = None):
         self.config = config
-        self.network_config = network_config or NetworkConfig()
+        self.network_config = network_config or self.config.network
 
         # 应用路径配置并设置实验名称
         self.config.paths.apply_to_path_manager()
@@ -78,6 +78,7 @@ class TraversalTrainer:
         """
         print(f"\n初始化训练环境 (四叉树最大层级: {self.config.index.max_level}) ---")
 
+
         # 1. 初始化四叉树
         self.quadtree = self.factory.create_quadtree()
 
@@ -100,11 +101,7 @@ class TraversalTrainer:
             alpha=self.config.index.alpha,
             beta=self.config.index.beta
         )
-        self.cost_evaluator = TraversalCostEvaluator(
-            self.quadtree,
-            tau_loc=self.config.reward.tau_loc,
-            tau_scan=self.config.reward.tau_scan
-        )
+        self.cost_evaluator = TraversalCostEvaluator(self.quadtree)
 
         # 6. 构建环境实例
         self.environment = self.factory.create_environment(self.quadtree, self.cost_evaluator)
@@ -137,7 +134,6 @@ class TraversalTrainer:
 
     def train(self) -> Dict[str, Any]:
         """主训练流程：执行完整的强化学习训练循环。"""
-        # 确保环境和智能体已就绪
         if self.environment is None or self.quadtree is None:
             self.setup()
         if self.agent is None:
@@ -149,36 +145,14 @@ class TraversalTrainer:
                          f"早停最小改进值: {self.config.train.early_stopping_min_delta * 100}%")
 
         for episode in tqdm(range(self.config.train.num_episodes)):
-            state, action_mask = self.environment.reset()
-            total_reward = 0.0
-            steps = 0
-
-            while True:
-                # Top-K 动作过滤
-                refined_mask = self._refine_action_mask(self.environment, action_mask)
-
-                # 选择动作
-                action, log_prob, value = self.agent.select_action(state, refined_mask)
-
-                # 环境步进
-                next_state, next_mask, reward, done, _ = self.environment.step(action)
-
-                # 存储经验并更新
-                self.agent.store_transition(state, action, reward, log_prob, value, refined_mask, done)
-
-                total_reward += reward
-                steps += 1
-                state, action_mask = next_state, next_mask
-
-                if done:
-                    break
+            total_reward, steps = self._run_training_episode()
 
             update_info = self.agent.update()
             if update_info and 'loss' in update_info:
                 self.state.record_episode(total_reward, steps, update_info['loss'])
             else:
                 self.state.record_episode(total_reward, steps)
-            
+
             # 每10个episode记录一次
             if (episode + 1) % 10 == 0:
                 self.logger.info(f"Episode {episode + 1}: Reward={total_reward:.2f}, Steps={steps}")
@@ -191,6 +165,32 @@ class TraversalTrainer:
 
         # 绘制曲线与最终评估
         return self._finalize_training()
+
+    def _run_training_episode(self) -> Tuple[float, int]:
+        """运行单个训练episode，返回总奖励和步数。"""
+        state, action_mask = self.environment.reset()
+        total_reward = 0.0
+        steps = 0
+
+        while True:
+            # Top-K 动作过滤
+            refined_mask = self._refine_action_mask(self.environment, action_mask)
+
+            # 选择动作
+            action, log_prob, value = self.agent.select_action(state, refined_mask)
+
+            # 环境步进
+            next_state, next_mask, reward, done, _ = self.environment.step(action)
+
+            # 存储经验并更新
+            self.agent.store_transition(state, action, reward, log_prob, value, refined_mask, done)
+
+            total_reward += reward
+            steps += 1
+            state, action_mask = next_state, next_mask
+
+            if done:
+                return total_reward, steps
 
     def rollout_policy_order(
             self,
@@ -205,7 +205,7 @@ class TraversalTrainer:
 
         while len(environment.visited_cells) < environment.num_cells and steps < max_steps:
             refined_mask = self._refine_action_mask(environment, action_mask)
-            action, _, _ = agent.select_action(state, refined_mask)
+            action, _, _ = agent.select_action(state, refined_mask, deterministic=True)
             next_state, next_mask, _, done, _ = environment.step(action)
             state, action_mask = next_state, next_mask
             steps += 1
@@ -215,7 +215,7 @@ class TraversalTrainer:
         if len(environment.visited_cells) < environment.num_cells:
             raise RuntimeError(f"Rollout 失败：步数超限 ({steps}) 仍未覆盖全部节点。")
 
-        return environment.learned_order()
+        return environment.quadorder()
 
     def _create_quadtree(self) -> QuadTreeIndex:
         """根据配置初始化边界框并构建四叉树索引"""
@@ -236,19 +236,22 @@ class TraversalTrainer:
             return
 
         self.similarity_matrix = SimilarityMatrix(self.quadtree, self.cost_evaluator)
-        matrix_path = self.config.data.get_similarity_matrix_path()
+        matrix_path = self.config.get_effective_similarity_matrix_path()
 
-        if matrix_path and matrix_path.exists():
+        if matrix_path.exists():
             print(f"加载相似度矩阵: {matrix_path}")
             if not self.similarity_matrix.load(str(matrix_path), self.environment.all_cells):
-                print("矩阵维度不匹配，重新计算...")
-                self._compute_and_save_similarity_matrix(str(matrix_path), self.environment.all_cells)
+                fallback_path = self.config.get_experiment_similarity_matrix_path()
+                print(
+                    "矩阵维度不匹配，将切换到实验私有矩阵: "
+                    f"{fallback_path}"
+                )
+                if fallback_path.exists() and self.similarity_matrix.load(str(fallback_path), self.environment.all_cells):
+                    return
+                self._compute_and_save_similarity_matrix(str(fallback_path), self.environment.all_cells)
         else:
-            if matrix_path:
-                print(f"⚠ 相似度矩阵文件不存在: {matrix_path}")
-            else:
-                print("⚠ 未指定相似度矩阵路径")
-            print("  将在运行时动态计算相似度")
+            print(f"⚠ 相似度矩阵文件不存在: {matrix_path}")
+            self._compute_and_save_similarity_matrix(str(matrix_path), self.environment.all_cells)
 
     def _compute_and_save_similarity_matrix(self, matrix_path: str, all_cells: List[QuadTreeCell]) -> None:
         """计算并持久化相似度矩阵。"""
@@ -262,7 +265,6 @@ class TraversalTrainer:
         device = self.network_config.get_torch_device()
         print(f"使用设备: {device}")
         
-        # 计算初始熵系数
         initial_entropy_coef = self.config.train.entropy_coef_start
         
         return TraversalPolicyAgent(
@@ -336,15 +338,97 @@ class TraversalTrainer:
         top_k = [idx for idx, _ in similarities[:limit]]
         return top_k if top_k else available_indices[:limit].tolist()
 
+    def _build_evaluator(
+            self,
+            reference_queries: List[SpatialBoundingBox],
+    ) -> TraversalPerformanceEvaluator:
+        """基于当前训练上下文创建统一评估器。"""
+        return TraversalPerformanceEvaluator(
+            self.quadtree,
+            self.encoder,
+            self.cost_evaluator,
+            reference_queries=reference_queries,
+            quadcode_include_muted=self.config.index.quadcode_include_muted,
+        )
+
+    def _evaluate_query_sets(
+            self,
+            quadorder: List[QuadTreeCell],
+            *,
+            train_queries: Optional[List[SpatialBoundingBox]] = None,
+            val_queries: Optional[List[SpatialBoundingBox]] = None,
+            test_queries: Optional[List[SpatialBoundingBox]] = None,
+    ) -> Dict[str, Optional[Dict[str, Any]]]:
+        """在可用的查询集上统一执行评估。"""
+        metrics: Dict[str, Optional[Dict[str, Any]]] = {
+            "train": None,
+            "val": None,
+            "test": None,
+        }
+        datasets = {
+            "train": train_queries,
+            "val": val_queries,
+            "test": test_queries,
+        }
+
+        for split_name, queries in datasets.items():
+            if not queries:
+                continue
+            metrics[split_name] = self._build_evaluator(queries).evaluate_final_order(quadorder)
+
+        return metrics
+
+    def _log_split_metrics(self, split_name: str, metrics: Dict[str, Any], suffix: str = "") -> None:
+        """统一输出单个数据集的评估结果。"""
+        split_label = split_name.capitalize()
+        improvement = metrics["improvement_percent"]
+        quadcode_cost = metrics["quadcode_avg_cost"]
+        quadorder_cost = metrics["quadorder_avg_cost"]
+
+        if suffix:
+            self.logger.info(f"{split_label}集改进率: {improvement:.2f}% {suffix}")
+        else:
+            self.logger.info(f"{split_label}集改进率: {improvement:.2f}%")
+        self.logger.info(f"{split_label}集 Baseline 平均成本: {quadcode_cost:.2f}")
+        self.logger.info(f"{split_label}集 学习顺序平均成本: {quadorder_cost:.2f}")
+
+    def _training_stats_snapshot(self) -> Dict[str, Any]:
+        """构建当前训练统计快照。"""
+        return {
+            "total_episodes": len(self.state.episode_rewards),
+            "avg_reward": float(np.mean(self.state.episode_rewards)) if self.state.episode_rewards else 0,
+            "final_reward": float(self.state.episode_rewards[-1]) if self.state.episode_rewards else 0,
+            "best_improvement": float(max(self.state.val_improvement_history)) if self.state.val_improvement_history else 0,
+            "early_stop_episode": self.state.early_stop_episode,
+        }
+
+    def _training_config_snapshot(self) -> Dict[str, Any]:
+        """构建用于指标落盘的训练配置快照。"""
+        return {
+            "max_level": self.config.index.max_level,
+            "alpha": self.config.index.alpha,
+            "beta": self.config.index.beta,
+            "num_trajectories": self.config.data.num_trajectories,
+            "num_episodes": len(self.state.episode_rewards),
+            "lr_actor": self.config.train.lr_actor,
+            "lr_critic": self.config.train.lr_critic,
+        }
+
+    def _write_json(self, path: Path, payload: Dict[str, Any], log_message: Optional[str] = None) -> None:
+        """统一写入 JSON 文件。"""
+        import json
+
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+
+        if log_message:
+            self.logger.info(log_message.format(path=path))
+
     def _handle_periodic_evaluation(self, episode: int) -> bool:
         """执行周期性评估逻辑。"""
         should_stop = False
         if episode % self.config.train.eval_interval == 0 or episode == self.config.train.num_episodes:
-            self._evaluate_and_checkpoint(
-                episode, self.agent, self.environment,
-                self.quadtree, self.encoder, self.cost_evaluator
-            )
-            # 检查早停
+            self._evaluate_and_checkpoint(episode)
             if self.config.train.enable_early_stopping:
                 should_stop = self._should_stop_early()
 
@@ -354,59 +438,38 @@ class TraversalTrainer:
 
         return should_stop
 
-    def _evaluate_and_checkpoint(self, episode: int, agent, environment, quadtree, encoder, cost_evaluator) -> None:
+    def _evaluate_and_checkpoint(self, episode: int) -> None:
         """评估当前策略在三类数据集上的表现，并保存模型检查点。"""
         avg_reward = self.state.get_recent_avg_reward(self.config.train.eval_interval)
         self.logger.info(f"\n[评估] Episode {episode}: 平均奖励 = {avg_reward:.2f}")
 
-        # 获取三类查询集
-        train_queries = environment.reference_queries  # 训练集
-        val_queries = getattr(environment, 'val_queries', None)  # 验证集
-        test_queries = getattr(environment, 'test_queries', None)  # 测试集
-
+        environment = self.environment
+        agent = self.agent
+        train_queries = environment.reference_queries
+        val_queries = environment.val_queries
+        test_queries = environment.test_queries
         if val_queries is None:
             self.logger.error("验证集不可用，跳过评估")
             return
 
-        # 生成当前策略的遍历顺序
-        learned_order = self.rollout_policy_order(agent, environment)
-
-        # 在三类数据集上分别评估
-        train_metrics = None
-        val_metrics = None
-        test_metrics = None
-
-        # 1. 训练集评估
-        if train_queries:
-            evaluator_train = TraversalPerformanceEvaluator(
-                quadtree, encoder, cost_evaluator,
-                reference_queries=train_queries,
-                baseline_include_muted=self.config.index.baseline_include_muted,
-            )
-            train_metrics = evaluator_train.evaluate_final_order(learned_order)
-            self.logger.info(f"训练集改进率: {train_metrics['improvement_percent']:.2f}%")
-
-        # 2. 验证集评估
-        evaluator_val = TraversalPerformanceEvaluator(
-            quadtree, encoder, cost_evaluator,
-            reference_queries=val_queries,
-            baseline_include_muted=self.config.index.baseline_include_muted,
+        quadorder = self.rollout_policy_order(agent, environment)
+        metrics = self._evaluate_query_sets(
+            quadorder,
+            train_queries=train_queries,
+            val_queries=val_queries,
+            test_queries=test_queries,
         )
-        val_metrics = evaluator_val.evaluate_final_order(learned_order)
-        self.logger.info(f"验证集改进率: {val_metrics['improvement_percent']:.2f}% (vs Z-Order)")
+        train_metrics = metrics["train"]
+        val_metrics = metrics["val"]
+        test_metrics = metrics["test"]
 
-        # 3. 测试集评估
-        if test_queries:
-            evaluator_test = TraversalPerformanceEvaluator(
-                quadtree, encoder, cost_evaluator,
-                reference_queries=test_queries,
-                baseline_include_muted=self.config.index.baseline_include_muted,
-            )
-            test_metrics = evaluator_test.evaluate_final_order(learned_order)
-            self.logger.info(f"测试集改进率: {test_metrics['improvement_percent']:.2f}%")
+        if train_metrics:
+            self._log_split_metrics("train", train_metrics)
+        self._log_split_metrics("val", val_metrics, suffix="(vs Z-Order)")
+        if test_metrics:
+            self._log_split_metrics("test", test_metrics)
 
-        # 记录三类改进率
-        train_imp = train_metrics['improvement_percent'] if train_metrics else 0.0
+        train_imp = train_metrics["improvement_percent"] if train_metrics else 0.0
         val_imp = val_metrics['improvement_percent']
         test_imp = test_metrics['improvement_percent'] if test_metrics else 0.0
 
@@ -431,13 +494,11 @@ class TraversalTrainer:
             agent.save(str(path))
             self.logger.info(f"模型已保存: {path}")
             
-            # 保存评估指标到对应目录
             metrics_path = pm.get_model_dir() / f"ep{episode:06d}_metrics.json"
             self._save_checkpoint_metrics(metrics_path, episode, train_metrics, val_metrics, test_metrics)
 
     def _save_evaluation_history(self) -> None:
         """保存评估历史到 JSON 文件。"""
-        import json
         from datetime import datetime
         
         history = {
@@ -449,16 +510,13 @@ class TraversalTrainer:
         }
         
         history_path = self.config.experiment.get_logs_dir() / "evaluation_history.json"
-        with open(history_path, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2, ensure_ascii=False)
+        self._write_json(history_path, history)
 
     def _save_checkpoint_metrics(self, path: Path, episode: int, 
                                   train_metrics: Optional[Dict], 
                                   val_metrics: Dict, 
                                   test_metrics: Optional[Dict]) -> None:
         """保存检查点评估指标。"""
-        import json
-        
         metrics = {
             "episode": episode,
             "timestamp": datetime.now().isoformat(),
@@ -466,18 +524,14 @@ class TraversalTrainer:
             "val": val_metrics,
             "test": test_metrics if test_metrics else None,
         }
-        
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(metrics, f, indent=2, ensure_ascii=False)
-        self.logger.info(f"评估指标已保存: {path}")
+        self._write_json(path, metrics, "评估指标已保存: {path}")
 
     def _finalize_training(self) -> Dict[str, Any]:
         """训练结束后的最终评估、绘图及模型保存"""
         self.logger.info("=== 训练结束，执行最终评估 ===")
         self._plot_training_curves()
 
-        # 最终评估
-        final_metrics = self._final_evaluation(self.environment, self.quadtree, self.encoder, self.cost_evaluator)
+        final_metrics = self._final_evaluation()
         
         # 生成带时间戳和指标的最终模型名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -491,18 +545,15 @@ class TraversalTrainer:
         self.agent.save(str(final_model_path))
         self.logger.info(f"最终模型已保存: {final_model_path}")
         
-        # 同时保存一个 latest.pth 作为最新模型引用
         latest_path = self.config.experiment.get_models_dir() / "latest.pth"
         self.agent.save(str(latest_path))
         
-        # 保存最终评估指标
         final_metrics_path = self.config.experiment.get_models_dir() / f"final_{timestamp}_metrics.json"
         self._save_final_metrics(final_metrics_path, final_metrics, final_model_name)
         
         # 保存训练总结
         self._save_training_summary(final_metrics)
         
-        # 自动选择最佳模型
         self._auto_select_best_model()
         
         return final_metrics
@@ -519,7 +570,6 @@ class TraversalTrainer:
         # 创建 evaluator
         evaluator = LSFCEvaluator(self.config, output_dir=str(output_dir))
         
-        # 选择最佳模型
         best_model_path, best_record = evaluator.select_best_model_from_metrics(str(model_dir))
         
         if best_model_path is None:
@@ -538,73 +588,39 @@ class TraversalTrainer:
 
     def _save_final_metrics(self, path: Path, final_metrics: Dict[str, Any], model_name: str) -> None:
         """保存最终评估指标。"""
-        import json
-        
         summary = {
             "model_name": model_name,
             "timestamp": datetime.now().isoformat(),
             "experiment_name": self.config.experiment.name,
             "final_metrics": final_metrics,
-            "training_config": {
-                "max_level": self.config.index.max_level,
-                "alpha": self.config.index.alpha,
-                "beta": self.config.index.beta,
-                "num_trajectories": self.config.data.num_trajectories,
-                "num_episodes": len(self.state.episode_rewards),
-                "lr_actor": self.config.train.lr_actor,
-                "lr_critic": self.config.train.lr_critic,
-            },
-            "training_stats": {
-                "total_episodes": len(self.state.episode_rewards),
-                "avg_reward": float(np.mean(self.state.episode_rewards)) if self.state.episode_rewards else 0,
-                "final_reward": float(self.state.episode_rewards[-1]) if self.state.episode_rewards else 0,
-                "best_improvement": float(max(self.state.val_improvement_history)) if self.state.val_improvement_history else 0,
-                "early_stop_episode": self.state.early_stop_episode,
-            }
+            "training_config": self._training_config_snapshot(),
+            "training_stats": self._training_stats_snapshot(),
         }
-        
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
-        
-        self.logger.info(f"最终指标已保存: {path}")
+        self._write_json(path, summary, "最终指标已保存: {path}")
 
-    def _final_evaluation(self, environment, quadtree, encoder, cost_evaluator) -> Dict[str, Any]:
+    def _final_evaluation(self) -> Dict[str, Any]:
         """使用保存的查询集进行最终评估，同时评估 val 和 test"""
-        # 使用环境中的查询集
-        val_queries = environment.val_queries if hasattr(environment, 'val_queries') else None
-        test_queries = environment.test_queries if hasattr(environment, 'test_queries') else None
+        environment = self.environment
+        val_queries = environment.val_queries
+        test_queries = environment.test_queries
         
         if val_queries is None or test_queries is None:
             raise RuntimeError("验证集或测试集不可用")
 
-        # 使用训练好的策略重新推理生成最优顺序
-        learned_order = self.rollout_policy_order(self.agent, environment)
-        
-        # 在 val 上评估
-        evaluator_val = TraversalPerformanceEvaluator(
-            quadtree, encoder, cost_evaluator,
-            reference_queries=val_queries,
-            baseline_include_muted=self.config.index.baseline_include_muted
+        quadorder = self.rollout_policy_order(self.agent, environment)
+        metrics = self._evaluate_query_sets(
+            quadorder,
+            val_queries=val_queries,
+            test_queries=test_queries,
         )
-        val_metrics = evaluator_val.evaluate_final_order(learned_order)
-        
-        # 在 test 上评估
-        evaluator_test = TraversalPerformanceEvaluator(
-            quadtree, encoder, cost_evaluator,
-            reference_queries=test_queries,
-            baseline_include_muted=self.config.index.baseline_include_muted
-        )
-        test_metrics = evaluator_test.evaluate_final_order(learned_order)
+        val_metrics = metrics["val"]
+        test_metrics = metrics["test"]
 
         self.logger.info("=== Val 查询集评估结果 ===")
-        self.logger.info(f"Baseline 平均成本: {val_metrics['baseline_avg_cost']:.2f}")
-        self.logger.info(f"学习顺序平均成本: {val_metrics['learned_avg_cost']:.2f}")
-        self.logger.info(f"改进率: {val_metrics['improvement_percent']:.2f}%")
+        self._log_split_metrics("val", val_metrics)
         
         self.logger.info("=== Test 查询集评估结果 ===")
-        self.logger.info(f"Baseline 平均成本: {test_metrics['baseline_avg_cost']:.2f}")
-        self.logger.info(f"学习顺序平均成本: {test_metrics['learned_avg_cost']:.2f}")
-        self.logger.info(f"改进率: {test_metrics['improvement_percent']:.2f}%")
+        self._log_split_metrics("test", test_metrics)
 
         return {
             'val_metrics': val_metrics,
@@ -628,7 +644,6 @@ class TraversalTrainer:
     
     def _save_training_summary(self, final_metrics: Dict[str, Any]):
         """保存训练总结到日志文件"""
-        import json
         from datetime import datetime
         
         test_metrics = final_metrics.get('test_metrics', final_metrics)
@@ -645,46 +660,34 @@ class TraversalTrainer:
                 "lr_actor": self.config.train.lr_actor,
                 "lr_critic": self.config.train.lr_critic,
             },
-            "training_stats": {
-                "total_episodes": len(self.state.episode_rewards),
-                "avg_reward": float(np.mean(self.state.episode_rewards)) if self.state.episode_rewards else 0,
-                "final_reward": float(self.state.episode_rewards[-1]) if self.state.episode_rewards else 0,
-                "best_improvement": float(max(self.state.val_improvement_history)) if self.state.val_improvement_history else 0,
-            },
+            "training_stats": self._training_stats_snapshot(),
             "final_metrics": {
-                "baseline_avg_cost": float(test_metrics['baseline_avg_cost']),
-                "learned_avg_cost": float(test_metrics['learned_avg_cost']),
+                "quadcode_avg_cost": float(test_metrics['quadcode_avg_cost']),
+                "quadorder_avg_cost": float(test_metrics['quadorder_avg_cost']),
                 "improvement_percent": float(test_metrics['improvement_percent']),
-                "baseline_nodes_hit": float(test_metrics['baseline_nodes_hit']),
-                "learned_nodes_hit": float(test_metrics.get('learned_nodes_hit', 0)),
+                "quadcode_nodes_hit": float(test_metrics['quadcode_nodes_hit']),
+                "quadorder_nodes_hit": float(test_metrics.get('quadorder_nodes_hit', 0)),
             }
         }
         
         summary_path = self.config.experiment.get_logs_dir() / "training_summary.json"
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
-        
-        self.logger.info(f"训练总结已保存: {summary_path}")
+        self._write_json(summary_path, summary, "训练总结已保存: {path}")
 
     def _should_stop_early(self) -> bool:
         """
         基于耐心值（Patience）机制与趋势稳定性判断是否触发早停。
         逻辑：如果当前改进率未能超越历史最高值，则消耗耐心。
-        
         返回:
             是否应该早停
         """
         if not self.config.train.enable_early_stopping:
             return False
 
-        # 改进率历史记录为空时不触发
         if not self.state.val_improvement_history:
             return False
 
-        # 获取最近一次评估的改进率
         current_improvement = self.state.val_improvement_history[-1]
 
-        # 更新负收益连续计数
         self.state.update_negative_streak(current_improvement)
 
         if self.state.negative_streak_counter >= self.config.train.max_negative_streak:
@@ -692,12 +695,10 @@ class TraversalTrainer:
                   f"for {self.config.train.max_negative_streak} times. Stopping.")
             return True
 
-        # 是否有显著改进
         is_significant_improvement = (
                 current_improvement > (self.state.best_improvement + self.config.train.early_stopping_min_delta))
 
         if is_significant_improvement:
-            # 刷新纪录：更新最高值，重置计数器
             self.state.update_best_improvement(current_improvement)
             print(f"[EarlyStop] New best: {current_improvement:.2f}%. Resetting patience.")
             return False
@@ -778,7 +779,7 @@ class TraversalTrainer:
                 z = np.polyfit(self.state.improvement_episodes, self.state.val_improvement_history, 1)
                 p = np.poly1d(z)
                 ax_imp.plot(self.state.improvement_episodes, p(self.state.improvement_episodes), "r--", alpha=0.7)
-            ax_imp.set_title("Improvement vs Baseline")
+            ax_imp.set_title("Improvement vs QuadCode")
             ax_imp.set_ylabel("%")
             ax_imp.set_xlabel("Episode")
             ax_imp.grid(True, alpha=0.3)
@@ -790,7 +791,7 @@ class TraversalTrainer:
 
     def describe_action_limit_schedule(self) -> Optional[Dict[str, int]]:
         """返回Top-K动作限制的调度参数。
-        
+
         返回:
             包含调度参数的字典，如果未启用则返回 None
         """
@@ -803,3 +804,5 @@ class TraversalTrainer:
             "final_multiplier": final_multiplier,
             "decay_episodes": self.config.train.topk_decay_episodes,
         }
+
+

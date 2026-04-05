@@ -32,9 +32,9 @@ def load_queries_from_files(category: str, queries_dir: Path) -> List[Tuple[floa
 
     dist_type = category_map.get(category, category)
 
-    # 加载所有范围的查询文件
+    # 加载所有范围的查询文件（新目录结构: range/<dist>/<dist>_<range>m.txt）
     for range_m in [100, 500, 1000, 1500, 2000]:
-        query_file = queries_dir / f"{dist_type}_{range_m}m.txt"
+        query_file = queries_dir / "range" / dist_type / f"{dist_type}_{range_m}m.txt"
 
         if not query_file.exists():
             print(f"警告: 文件不存在 {query_file}")
@@ -45,7 +45,8 @@ def load_queries_from_files(category: str, queries_dir: Path) -> List[Tuple[floa
             if not content:
                 continue
 
-            queries_str = content.split(';')
+            # 兼容按换行和按分号两种格式
+            queries_str = content.replace('\n', ';').split(';')
             for q_str in queries_str:
                 q_str = q_str.strip()
                 if not q_str:

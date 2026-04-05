@@ -265,75 +265,209 @@ def plot_resolution_distribution(stats: dict, max_lvl: int, output_dir: Optional
     level_stats = stats["level_stats"]
     sorted_levels = sorted(level_dist.keys())
 
-    # 创建画布
-    fig, axes = plt.subplots(2, 2, figsize=(18, 11)) if has_cell_dist else plt.subplots(1, 1, figsize=(10, 6))
-    fig.suptitle('Quadtree Trajectory Resolution Analysis', fontsize=18, fontweight='bold', y=0.98)
+    def select_display_levels(levels: List[int], max_levels_to_show: int = 12) -> List[int]:
+        if len(levels) <= max_levels_to_show:
+            return levels
+        return levels[-max_levels_to_show:]
 
-    ax1 = axes[0, 0] if has_cell_dist else axes
+    def style_axis(ax) -> None:
+        ax.set_facecolor("white")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.tick_params(axis="both", which="both", length=0, labelsize=8)
+        ax.grid(axis="y", color="#d9d9d9", linewidth=0.6, alpha=0.8)
+        ax.grid(axis="x", visible=False)
 
-    # --- 1. 轨迹数量分布 (Bar + CDF Line) ---
-    counts = [level_dist[lvl] for lvl in sorted_levels]
-    bars = ax1.bar(sorted_levels, counts, color=sns.color_palette("husl", len(sorted_levels)), edgecolor='black',
-                   alpha=0.7)
-    ax1.set_title('Trajectory Count & Cumulative Distribution', fontsize=14, fontweight='bold')
-    ax1.set_ylabel('Number of Trajectories')
-
-    # 添加 CDF 曲线
-    ax1_twin = ax1.twinx()
-    cdf = np.cumsum(counts) / sum(counts) * 100
-    ax1_twin.plot(sorted_levels, cdf, color='darkred', marker='D', markersize=4, label='CDF %')
-    ax1_twin.set_ylabel('Cumulative Percentage (%)')
-    ax1_twin.set_ylim(0, 105)
-    ax1_twin.grid(False)
-
-    # 统计信息文本框
-    stats_text = (f"Total: {stats['total_trajectories']}\nAssigned: {stats['assigned_trajectories']}\n"
-                  f"Mean Level: {level_stats['mean']:.2f}\nStd Dev: {level_stats['std']:.2f}")
-    ax1.text(0.05, 0.95, stats_text, transform=ax1.transAxes, verticalalignment='top',
-             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8), family='monospace', fontsize=9)
+    display_levels = select_display_levels(sorted_levels, max_levels_to_show=12)
+    counts = [level_dist[lvl] for lvl in display_levels]
 
     if has_cell_dist:
-        # --- 2. 单元格数量 & 相对填充率 ---
-        ax2 = axes[0, 1]
-        sorted_cell_lvls = sorted(cell_dist_by_level.keys())
+        fig, axes = plt.subplots(
+            3,
+            1,
+            figsize=(6.6, 5.6),
+            dpi=200,
+            sharex=True,
+            gridspec_kw={"height_ratios": [1.55, 1.0, 1.0]},
+        )
+        ax1, ax2, ax3 = axes
+    else:
+        fig, ax1 = plt.subplots(1, 1, figsize=(6.2, 2.7), dpi=200)
+        ax2 = None
+        ax3 = None
+
+    bar_color = "#4C78A8"
+    line_color = "#E45756"
+    accent_color = "#54A24B"
+
+    ax1.bar(display_levels, counts, color=bar_color, width=0.72, edgecolor="none")
+    style_axis(ax1)
+    ax1.set_ylabel("Trajs", fontsize=9)
+
+    ax1_twin = ax1.twinx()
+    full_counts = [level_dist[lvl] for lvl in sorted_levels]
+    full_cdf_map = {
+        lvl: value for lvl, value in zip(sorted_levels, np.cumsum(full_counts) / sum(full_counts) * 100)
+    }
+    cdf = [full_cdf_map[lvl] for lvl in display_levels]
+    ax1_twin.plot(display_levels, cdf, color=line_color, marker='o', linewidth=1.4, markersize=3.2)
+    ax1_twin.set_ylabel("CDF (%)", fontsize=9)
+    ax1_twin.set_ylim(0, 105)
+    ax1_twin.grid(False)
+    for spine in ax1_twin.spines.values():
+        spine.set_visible(False)
+    ax1_twin.tick_params(axis="y", which="both", length=0, labelsize=8)
+
+    stats_text = (
+        f"N={stats['assigned_trajectories']}\n"
+        f"mean={level_stats['mean']:.2f}\n"
+        f"std={level_stats['std']:.2f}"
+    )
+    ax1.text(
+        0.98,
+        0.96,
+        stats_text,
+        transform=ax1.transAxes,
+        verticalalignment='top',
+        horizontalalignment='right',
+        fontsize=7.8,
+        color="#333333",
+    )
+
+    if has_cell_dist:
+        sorted_cell_lvls = [lvl for lvl in display_levels if lvl in cell_dist_by_level]
         cell_counts = [cell_dist_by_level[lvl]['total_cells'] for lvl in sorted_cell_lvls]
         fill_rates = [(cell_counts[i] / (4 ** l) * 100) for i, l in enumerate(sorted_cell_lvls)]
 
-        ax2.bar(sorted_cell_lvls, cell_counts, color='coral', alpha=0.6, edgecolor='black', label='Active Cells')
-        ax2.set_title('Active Cell Count & Relative Fill Rate', fontsize=13, fontweight='bold')
+        ax2.bar(sorted_cell_lvls, cell_counts, color="#F58518", width=0.72, edgecolor="none")
+        style_axis(ax2)
+        ax2.set_ylabel("Cells", fontsize=9)
 
         ax2_twin = ax2.twinx()
-        ax2_twin.plot(sorted_cell_lvls, fill_rates, 'g--', marker='o', label='Fill Rate %')
-        ax2_twin.set_ylabel('Fill Rate (Active/Theoretical %)')
-        ax2_twin.set_yscale('log')  # 填充率通常随层级指数下降，对数显示更清晰
+        ax2_twin.plot(sorted_cell_lvls, fill_rates, color=accent_color, marker='o', linewidth=1.2, markersize=3.0)
+        ax2_twin.set_ylabel("Fill (%)", fontsize=9)
+        ax2_twin.set_yscale('log')
+        ax2_twin.grid(False)
+        for spine in ax2_twin.spines.values():
+            spine.set_visible(False)
+        ax2_twin.tick_params(axis="y", which="both", length=0, labelsize=8)
 
-        # --- 3. 平均负载 ---
-        ax3 = axes[1, 0]
         avgs = [cell_dist_by_level[lvl]['avg_trajectories_per_cell'] for lvl in sorted_cell_lvls]
-        sns.lineplot(x=sorted_cell_lvls, y=avgs, ax=ax3, marker='s', color='teal', linewidth=2.5)
-        ax3.fill_between(sorted_cell_lvls, avgs, alpha=0.2, color='teal')
-        ax3.set_title('Avg Trajectories per Cell (Load Balance)', fontsize=13, fontweight='bold')
-        ax3.set_ylabel('Avg Load')
+        ax3.plot(sorted_cell_lvls, avgs, color="#72B7B2", marker='o', linewidth=1.4, markersize=3.2)
+        ax3.fill_between(sorted_cell_lvls, avgs, alpha=0.16, color="#72B7B2")
+        style_axis(ax3)
+        ax3.set_ylabel("Avg load", fontsize=9)
+        ax3.set_xlabel("Level", fontsize=9)
+    else:
+        ax1.set_xlabel("Level", fontsize=9)
 
-        # --- 4. 区间热度分布 (Grouped Bar) ---
-        ax4 = axes[1, 1]
-        range_labels = ["1", "2-5", "6-10", "11-20", "21-50", "51-100", "100+"]
-        x = np.arange(len(sorted_cell_lvls))
-        width = 0.1
+    for ax in [ax1, ax2, ax3]:
+        if ax is None:
+            continue
+        ax.set_xticks(display_levels)
+        ax.set_xlim(min(display_levels) - 0.5, max(display_levels) + 0.5)
 
-        for i, label in enumerate(range_labels):
-            vals = [cell_dist_by_level[lvl]['trajectory_count_distribution'].get(label, 0) for lvl in sorted_cell_lvls]
-            ax4.bar(x + (i - 3) * width, vals, width, label=label, alpha=0.8)
-
-        ax4.set_xticks(x)
-        ax4.set_xticklabels(sorted_cell_lvls)
-        ax4.set_title('Cell Density Distribution by Range', fontsize=13, fontweight='bold')
-        ax4.legend(title="Trajs/Cell", fontsize=8, ncol=2)
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(output_path / f"trajectory_resolution_analysis_L{max_lvl}.png", dpi=200)
+    fig.tight_layout(pad=0.35)
+    base_path = output_path / f"trajectory_resolution_analysis_L{max_lvl}"
+    fig.savefig(base_path.with_suffix(".png"), dpi=300, bbox_inches="tight", pad_inches=0.02)
+    fig.savefig(base_path.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.02)
     plt.close()
-    print(f"Analysis plot saved to {output_path}")
+    print(
+        f"Analysis plot saved to {base_path}.png/.pdf "
+        f"(display levels: {display_levels[0]}-{display_levels[-1]})"
+    )
+
+
+def plot_trajectories_in_cell_by_resolution(
+        stats: dict,
+        max_lvl: int,
+        output_dir: Optional[str] = None
+) -> None:
+    output_path = Path(output_dir) if output_dir else Path("scripts/analyze/analysis_output")
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    cell_dist_by_level = stats.get("cell_distribution_by_level", {})
+    if not cell_dist_by_level:
+        print("Warning: No cell distribution data available")
+        return
+
+    range_labels = ["1", "2-5", "6-10", "11-20", "21-50", "51-100", "100+"]
+    levels = sorted(cell_dist_by_level.keys())
+
+    plt.style.use("default")
+    fig, ax = plt.subplots(figsize=(7.0, 3.2), dpi=220)
+
+    # gnuplot-like clean palette for grouped bars
+    colors = [
+        "#1f77b4",
+        "#d62728",
+        "#2ca02c",
+        "#9467bd",
+        "#ff7f0e",
+        "#8c564b",
+        "#17becf",
+    ]
+    x = np.arange(len(levels), dtype=np.float32)
+    width = 0.11
+    offsets = np.linspace(-3, 3, len(range_labels)) * width
+
+    for idx, (label, offset) in enumerate(zip(range_labels, offsets)):
+        values = [
+            cell_dist_by_level[level]["trajectory_count_distribution"].get(label, 0)
+            for level in levels
+        ]
+        ax.bar(
+            x + offset,
+            values,
+            color=colors[idx],
+            width=width * 0.92,
+            edgecolor="#444444",
+            linewidth=0.35,
+            label=label,
+            zorder=3,
+        )
+
+    ax.set_xlabel("Resolution", fontsize=9)
+    ax.set_ylabel("Trajectories in Cell", fontsize=9)
+    ax.set_xticks(x)
+    ax.set_xticklabels(levels)
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.8)
+        spine.set_color("#555555")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="both", which="both", direction="out", length=3, width=0.8, labelsize=8, colors="#333333")
+    ax.grid(True, axis="y", linestyle=":", linewidth=0.5, color="#bfbfbf", alpha=0.9, zorder=0)
+    ax.grid(False, axis="x")
+    ax.set_facecolor("white")
+
+    ax.legend(
+        title=None,
+        ncol=4,
+        fontsize=7.2,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.06),
+        handlelength=1.6,
+        columnspacing=0.9,
+        handletextpad=0.5,
+    )
+
+    fig.tight_layout(pad=0.35)
+    base_path = output_path / f"trajectories_in_cell_by_resolution_L{max_lvl}"
+    fig.savefig(base_path.with_suffix(".png"), dpi=300, bbox_inches="tight", pad_inches=0.02)
+    pdf_path = base_path.with_suffix(".pdf")
+    try:
+        fig.savefig(pdf_path, bbox_inches="tight", pad_inches=0.02)
+        pdf_msg = str(pdf_path)
+    except PermissionError:
+        alt_pdf_path = output_path / f"{base_path.stem}_latest.pdf"
+        fig.savefig(alt_pdf_path, bbox_inches="tight", pad_inches=0.02)
+        pdf_msg = f"{pdf_path} (locked, saved as {alt_pdf_path})"
+    plt.close()
+    print(f"Standalone plot saved to {base_path.with_suffix('.png')} and {pdf_msg}")
 
 
 def print_statistics(stats: dict) -> None:
@@ -428,6 +562,8 @@ def main():
     # 3. 结果产出
     print_statistics(stats)
     plot_resolution_distribution(stats, args.max_level, args.output_dir)
+    if args.analyze_cell_distribution:
+        plot_trajectories_in_cell_by_resolution(stats, args.max_level, args.output_dir)
     save_resolution_analysis_file(stats, bbox, args.max_level, args.alpha, args.beta, args.output_dir)
 
     print(f"\n✅ 分析任务完成。")

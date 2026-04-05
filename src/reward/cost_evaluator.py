@@ -1,7 +1,5 @@
-"""
-训练与评估阶段共享的奖励 / 成本评估工具。
-"""
-from typing import Iterable, Tuple
+﻿from math import log
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 
@@ -10,32 +8,30 @@ from src.indexing.quadtree_index import QuadTreeIndex
 
 
 class TraversalCostEvaluator:
-    """遍历成本评估器。
-    
-    结合几何距离和轨迹相似度计算强化学习奖励。
-    """
-    
-    # 常量定义
-    DEFAULT_TAU_LOC = 1.0
-    DEFAULT_TAU_SCAN = 0.1
-    GLOBAL_REWARD_SCALE = 10.0
+    """Shared local-reward and rowKey cost evaluator."""
 
     def __init__(
-        self,
-        quadtree: QuadTreeIndex,
-        tau_loc: float = DEFAULT_TAU_LOC,
-        tau_scan: float = DEFAULT_TAU_SCAN
+            self,
+            quadtree: QuadTreeIndex,
     ):
-        """初始化成本评估器。
-        
-        参数:
-            quadtree: 四叉树索引
-            tau_loc: 定位成本权重
-            tau_scan: 扫描成本权重
-        """
         self.quadtree = quadtree
-        self.tau_loc = tau_loc
-        self.tau_scan = tau_scan
+        self._jaccard_cache: Dict[Tuple[int, int], float] = {}
+
+    @staticmethod
+    def merge_intervals(parts: Iterable[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        parts_list = [(float(start), float(end)) for start, end in parts if end > start]
+        if not parts_list:
+            return []
+
+        sorted_parts = sorted(parts_list, key=lambda item: (item[0], item[1]))
+        merged: List[List[float]] = [list(sorted_parts[0])]
+        for start, end in sorted_parts[1:]:
+            if start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+
+        return [(start, end) for start, end in merged]
 
     @staticmethod
     def _distance(cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> float:
@@ -44,166 +40,184 @@ class TraversalCostEvaluator:
         return float(np.linalg.norm(np.array(centroid_a) - np.array(centroid_b)))
 
     def proximity_reward(
-        self,
-        cell_a: QuadTreeCell,
-        cell_b: QuadTreeCell,
-        normaliser: float
+            self,
+            cell_a: QuadTreeCell,
+            cell_b: QuadTreeCell,
+            normaliser: float,
     ) -> float:
-        """计算邻近性奖励。
-        
-        依据单元格中心距离计算邻近性奖励，并归一化到 [0,1]。
-        
-        参数:
-            cell_a: 第一个单元格
-            cell_b: 第二个单元格
-            normaliser: 归一化因子（通常为最大距离）
-            
-        返回:
-            归一化的邻近性奖励 [0, 1]
-        """
         distance = self._distance(cell_a, cell_b)
         normalised = min(distance / normaliser, 1.0)
         return 1.0 - normalised
 
     def jaccard_similarity(self, cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> float:
-        """
-        计算两个单元格的 Jaccard 相似度。
-        
-        基于轨迹集合的交集和并集计算相似度。
-        使用轨迹到单元格的索引映射优化性能。
-        
-        参数:
-            cell_a: 第一个单元格
-            cell_b: 第二个单元格
-            
-        返回:
-            Jaccard 相似度 [0, 1]
-        """
-        # 尝试使用索引映射优化
-        trajectory_to_cells = getattr(self.quadtree, 'trajectory_to_cells', None)
-        trajectory_mbrs = getattr(self.quadtree, 'trajectory_mbrs', None)
+        cache_key = self._jaccard_cache_key(cell_a, cell_b)
+        cached = self._jaccard_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        trajectory_to_cells = getattr(self.quadtree, "trajectory_to_cells", None)
+        trajectory_mbrs = getattr(self.quadtree, "trajectory_mbrs", None)
 
         if trajectory_to_cells is not None and trajectory_mbrs is not None:
-            return self._jaccard_with_index(cell_a, cell_b, trajectory_mbrs)
+            similarity = self._jaccard_with_index(cell_a, cell_b, trajectory_mbrs)
         else:
-            return self._jaccard_fallback(cell_a, cell_b)
+            similarity = self._jaccard_fallback(cell_a, cell_b)
+
+        self._jaccard_cache[cache_key] = similarity
+        return similarity
+
+    @staticmethod
+    def _jaccard_cache_key(cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> Tuple[int, int]:
+        node_a = id(cell_a)
+        node_b = id(cell_b)
+        return (node_a, node_b) if node_a <= node_b else (node_b, node_a)
+
+    @staticmethod
+    def _collect_intersecting_trajectories_with_bbox(
+            source_cell: QuadTreeCell,
+            target_cell: QuadTreeCell,
+            trajectory_mbrs: dict,
+            source_bucket: set,
+            target_bucket: set,
+    ) -> None:
+        for trajectory_id in source_cell.trajectories:
+            source_bucket.add(trajectory_id)
+            trajectory_bbox = trajectory_mbrs.get(trajectory_id)
+            if trajectory_bbox and target_cell.bbox.intersects(trajectory_bbox):
+                target_bucket.add(trajectory_id)
+
+    def _collect_intersecting_trajectories_with_search(
+            self,
+            source_cell: QuadTreeCell,
+            target_cell: QuadTreeCell,
+            source_bucket: set,
+            target_bucket: set,
+    ) -> None:
+        for trajectory_id in source_cell.trajectories:
+            source_bucket.add(trajectory_id)
+            if self.quadtree.trajectory_intersects_cell(trajectory_id, target_cell):
+                target_bucket.add(trajectory_id)
 
     def _jaccard_with_index(
-        self,
-        cell_a: QuadTreeCell,
-        cell_b: QuadTreeCell,
-        trajectory_mbrs: dict
+            self,
+            cell_a: QuadTreeCell,
+            cell_b: QuadTreeCell,
+            trajectory_mbrs: dict,
     ) -> float:
-        """使用索引映射计算 Jaccard 相似度。"""
         trajectories_a = set()
         trajectories_b = set()
 
-        # 收集 cell_a 的轨迹及其与 cell_b 的相交轨迹
-        for trajectory_id in cell_a.trajectories:
-            trajectories_a.add(trajectory_id)
-            trajectory_bbox = trajectory_mbrs.get(trajectory_id)
-            if trajectory_bbox and cell_b.bbox.intersects(trajectory_bbox):
-                trajectories_b.add(trajectory_id)
-
-        # 收集 cell_b 的轨迹及其与 cell_a 的相交轨迹
-        for trajectory_id in cell_b.trajectories:
-            trajectories_b.add(trajectory_id)
-            trajectory_bbox = trajectory_mbrs.get(trajectory_id)
-            if trajectory_bbox and cell_a.bbox.intersects(trajectory_bbox):
-                trajectories_a.add(trajectory_id)
+        self._collect_intersecting_trajectories_with_bbox(
+            cell_a, cell_b, trajectory_mbrs, trajectories_a, trajectories_b
+        )
+        self._collect_intersecting_trajectories_with_bbox(
+            cell_b, cell_a, trajectory_mbrs, trajectories_b, trajectories_a
+        )
 
         return self._compute_jaccard(trajectories_a, trajectories_b)
 
     def _jaccard_fallback(self, cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> float:
-        """回退方法：不使用索引映射计算 Jaccard 相似度。"""
         trajectories_a = set()
         trajectories_b = set()
 
-        for trajectory_id in cell_a.trajectories:
-            trajectories_a.add(trajectory_id)
-            if self.quadtree.trajectory_intersects_cell(trajectory_id, cell_b):
-                trajectories_b.add(trajectory_id)
-
-        for trajectory_id in cell_b.trajectories:
-            trajectories_b.add(trajectory_id)
-            if self.quadtree.trajectory_intersects_cell(trajectory_id, cell_a):
-                trajectories_a.add(trajectory_id)
+        self._collect_intersecting_trajectories_with_search(
+            cell_a, cell_b, trajectories_a, trajectories_b
+        )
+        self._collect_intersecting_trajectories_with_search(
+            cell_b, cell_a, trajectories_b, trajectories_a
+        )
 
         return self._compute_jaccard(trajectories_a, trajectories_b)
 
     @staticmethod
     def _compute_jaccard(set_a: set, set_b: set) -> float:
-        """计算两个集合的 Jaccard 系数。"""
         if not set_a and not set_b:
             return 1.0
 
-        intersection = len(set_a & set_b)
         union = len(set_a | set_b)
-        
         if union == 0:
             return 0.0
-        
-        return intersection / union
+        return len(set_a & set_b) / union
 
     def step_reward(
-        self,
-        current_cell: QuadTreeCell,
-        next_cell: QuadTreeCell,
-        normaliser: float,
-        proximity_weight: float = 0.5,
-        similarity_weight: float = 0.5,
+            self,
+            current_cell: QuadTreeCell,
+            next_cell: QuadTreeCell,
+            normaliser: float,
+            proximity_weight: float = 0.5,
+            similarity_weight: float = 0.5,
     ) -> float:
-        """计算单步奖励。
-        
-        结合空间邻近性和轨迹相似度计算奖励。
-        
-        参数:
-            current_cell: 当前单元格
-            next_cell: 下一个单元格
-            normaliser: 距离归一化因子
-            proximity_weight: 邻近性权重
-            similarity_weight: 相似度权重
-            
-        返回:
-            加权奖励值
-        """
         proximity_value = self.proximity_reward(current_cell, next_cell, normaliser)
         similarity_value = self.jaccard_similarity(current_cell, next_cell)
         return proximity_weight * proximity_value + similarity_weight * similarity_value
 
-    def query_cost(self, intervals: Iterable[Tuple[int, int]]) -> float:
-        """计算查询成本。
-        
-        基于区间数量与覆盖长度计算成本。
-        
-        参数:
-            intervals: 查询区间列表 [(start, end), ...]
-            
-        返回:
-            查询成本
-        """
-        intervals_list = list(intervals)
-        m_value = len(intervals_list)
-        length_value = sum(end - start for start, end in intervals_list)
-        return self.tau_loc * m_value + self.tau_scan * length_value
+    @staticmethod
+    def _normalize_rowkey_intervals(
+            intervals: Iterable[Tuple[int, int]],
+            gap_move_bits: int,
+    ) -> List[Tuple[float, float]]:
+        scale = float(1 << int(gap_move_bits)) if gap_move_bits > 0 else 1.0
+        return [
+            (float(start) / scale, float(end) / scale)
+            for start, end in intervals
+            if end > start
+        ]
+
+    @staticmethod
+    def _compute_gap_lengths(intervals: Sequence[Tuple[float, float]]) -> List[float]:
+        if len(intervals) <= 1:
+            return []
+
+        sorted_intervals = sorted(intervals, key=lambda x: (x[0], x[1]))
+        gaps: List[float] = []
+        for idx in range(len(sorted_intervals) - 1):
+            gap = float(sorted_intervals[idx + 1][0] - sorted_intervals[idx][1])
+            if gap > 0:
+                gaps.append(gap)
+        return gaps
+
+    @staticmethod
+    def _normalized_gap_entropy(gaps: Sequence[float]) -> float:
+        if len(gaps) <= 1:
+            return 0.0
+
+        total_gap = float(sum(gaps))
+        if total_gap <= 0:
+            return 0.0
+
+        probabilities = np.array([gap / total_gap for gap in gaps if gap > 0], dtype=float)
+        if len(probabilities) <= 1:
+            return 0.0
+
+        entropy = float(-np.sum(probabilities * np.log(probabilities)))
+        max_entropy = log(len(probabilities))
+        if max_entropy <= 0:
+            return 0.0
+        return float(np.clip(entropy / max_entropy, 0.0, 1.0))
+
+    def query_cost(self, intervals: Iterable[Tuple[int, int]], gap_move_bits: int = 0) -> float:
+        intervals_list = [(int(start), int(end)) for start, end in intervals if end > start]
+        interval_count = len(intervals_list)
+
+        if interval_count == 0:
+            return 0.0
+
+        if interval_count <= 1:
+            return float(interval_count)
+
+        normalized_intervals = self._normalize_rowkey_intervals(intervals_list, gap_move_bits)
+        merged_intervals = self.merge_intervals(normalized_intervals)
+        gap_entropy = self._normalized_gap_entropy(self._compute_gap_lengths(merged_intervals))
+
+        return float(interval_count + gap_entropy)
 
     def global_reward(
-        self,
-        baseline_intervals: Iterable[Tuple[int, int]],
-        learned_intervals: Iterable[Tuple[int, int]]
-    ) -> float:
-        """计算全局奖励。
-        
-        根据学习顺序相较于基线顺序的成本改进量生成全局奖励。
-        
-        参数:
-            baseline_intervals: 基线顺序的查询区间
-            learned_intervals: 学习顺序的查询区间
-            
-        返回:
-            全局奖励（放大后）
-        """
-        baseline_cost = self.query_cost(baseline_intervals)
-        learned_cost = self.query_cost(learned_intervals)
-        improvement = baseline_cost - learned_cost
-        return max(0.0, improvement) * self.GLOBAL_REWARD_SCALE
+            self,
+            quadorder_intervals: Iterable[Tuple[int, int]],
+            quadcode_cost: float,
+            scale: float = 1.0,
+            quadorder_gap_move_bits: int = 0,
+    ) -> Tuple[float, float]:
+        quadorder_cost = self.query_cost(quadorder_intervals, gap_move_bits=quadorder_gap_move_bits)
+        improvement = quadcode_cost - quadorder_cost
+        return improvement * scale, improvement

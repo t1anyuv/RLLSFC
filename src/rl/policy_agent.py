@@ -4,10 +4,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Categorical
 
-from src.rl.replay_buffer import ReplayBuffer, Transition
 from src.rl.ppo_updater import PPOUpdater
+from src.rl.replay_buffer import ReplayBuffer, Transition
 
 
 class TraversalActorNetwork(nn.Module):
@@ -69,7 +68,12 @@ class TraversalActorNetwork(nn.Module):
         """
         return self.network(state)
 
-    def select_action(self, state: torch.Tensor, action_mask: torch.Tensor) -> Tuple[int, torch.Tensor]:
+    def select_action(
+        self,
+        state: torch.Tensor,
+        action_mask: torch.Tensor,
+        deterministic: bool = False,
+    ) -> Tuple[int, torch.Tensor]:
         """
         从策略分布中采样一个合法动作。
 
@@ -95,7 +99,10 @@ class TraversalActorNetwork(nn.Module):
         probabilities = F.softmax(masked_logits, dim=-1)
 
         distribution = torch.distributions.Categorical(probabilities)
-        action = distribution.sample()
+        if deterministic:
+            action = torch.argmax(probabilities, dim=-1)
+        else:
+            action = distribution.sample()
 
         return action.item(), distribution.log_prob(action)
 
@@ -241,7 +248,12 @@ class TraversalPolicyAgent:
             gradient_clip_norm=gradient_clip_norm
         )
 
-    def select_action(self, state: np.ndarray, action_mask: np.ndarray) -> Tuple[int, torch.Tensor, torch.Tensor]:
+    def select_action(
+        self,
+        state: np.ndarray,
+        action_mask: np.ndarray,
+        deterministic: bool = False,
+    ) -> Tuple[int, torch.Tensor, torch.Tensor]:
         """
         根据当前状态选择动作，并返回动作、对数概率与状态价值。
 
@@ -262,7 +274,11 @@ class TraversalPolicyAgent:
 
         with torch.no_grad():
             value = self.critic(state_tensor)
-            action, log_prob = self.actor.select_action(state_tensor, mask_tensor)
+            action, log_prob = self.actor.select_action(
+                state_tensor,
+                mask_tensor,
+                deterministic=deterministic,
+            )
         return action, log_prob, value
 
     def store_transition(

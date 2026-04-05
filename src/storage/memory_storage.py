@@ -119,3 +119,11 @@ class InMemoryTrajectoryStorage(TrajectoryStorage):
             total += sys.getsizeof(mbr)
         
         return total
+
+    @property
+    def trajectory_points(self):
+        return self._trajectory_points
+
+    @property
+    def trajectory_mbrs(self):
+        return self._trajectory_mbrs

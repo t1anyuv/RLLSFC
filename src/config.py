@@ -1,4 +1,4 @@
-"""统一的配置管理模块
+﻿"""统一的配置管理模块
 
 本模块提供了项目的配置管理功能，采用模块化设计，将配置分为多个子模块：
 - IndexConfig: 四叉树索引配置
@@ -57,6 +57,10 @@ class ExperimentConfig:
     def get_curves_dir(self) -> Path:
         """获取曲线图输出目录"""
         return self.get_output_dir() / "curves"
+
+    def get_similarity_dir(self) -> Path:
+        """获取实验私有相似度矩阵目录"""
+        return self.get_output_dir() / "similarity"
 
 
 @dataclass
@@ -144,7 +148,7 @@ class IndexConfig:
         use_original_bbox: 是否使用原始边界框（而非归一化的[0,0,1,1]）
         use_prune: 是否启用节点剪枝逻辑
         min_cell_trajs: 节点内最少轨迹数阈值，低于此值的节点将被剪枝
-        baseline_include_muted: baseline遍历顺序是否包含哑节点
+        quadcode_include_muted: quadCode遍历顺序是否包含哑节点
         enable_sig_optimize: 是否启用轨迹签名优化
         parallel_signatures: 是否并行计算签名
         signature_workers: 签名计算的工作进程数
@@ -163,7 +167,7 @@ class IndexConfig:
     # 剪枝与过滤
     use_prune: bool = True
     min_cell_trajs: int = 0
-    baseline_include_muted: bool = False
+    quadcode_include_muted: bool = False
     enable_sig_optimize: bool = False
     
     # 并行计算配置
@@ -223,11 +227,9 @@ class DataConfig:
         """获取相似度矩阵完整路径"""
         if not self.similarity_matrix_path:
             return None
-        path = Path(self.similarity_matrix_path)
-        if path.is_absolute():
-            return path
-        # 相对路径相对于 resource/shared/similarity/
-        return Path("resource/shared/similarity") / path
+        from src.utils.path_manager import get_path_manager
+
+        return get_path_manager().get_similarity_matrix_path(self.similarity_matrix_path)
 
 
 @dataclass
@@ -239,8 +241,13 @@ class RewardConfig:
         tau_scan: 扫描成本系数（控制节点扫描代价权重）
         local_reward_weight: 局部奖励在总奖励中的权重
         global_reward_weight: 全局奖励在总奖励中的权重
+        reward_schedule_episodes: 奖励权重从预热过渡到目标权重的轮数
+        global_reward_start_scale: 训练初期全局奖励权重缩放比例
+        local_reward_start_scale: 训练初期局部奖励权重缩放比例
         global_reward_scale: 全局奖励缩放倍数
         global_reward_num_evals: 全局奖励计算次数
+        global_reward_query_sample_size: 训练期每次全局奖励估计采样的查询数，None表示使用全部
+        global_reward_frontload_exponent: 全局奖励checkpoint前置指数，越大越偏向前期触发
         query_dataset_path: 查询数据集目录路径
         query_distribution_type: 查询分布类型（'uniform'/'skewed'/'gaussian'）
         train_val_test_split: 训练集/验证集/测试集划分比例（用于原始数据划分）
@@ -250,8 +257,13 @@ class RewardConfig:
     tau_scan: float = 0.1
     local_reward_weight: float = 0.4
     global_reward_weight: float = 1.0
+    reward_schedule_episodes: int = 100
+    global_reward_start_scale: float = 0.25
+    local_reward_start_scale: float = 1.0
     global_reward_scale: float = 2.0
     global_reward_num_evals: int = 1
+    global_reward_query_sample_size: Optional[int] = 64
+    global_reward_frontload_exponent: float = 1.5
 
     # 查询数据集配置
     query_dataset_path: str = "resource/queries"
@@ -515,6 +527,34 @@ class TShapeConfig:
             (min_x, min_y, max_x, max_y) 四元组
         """
         return self.index.get_bbox_tuple()
+
+    def get_default_similarity_matrix_filename(self) -> str:
+        """获取默认相似度矩阵文件名。"""
+        return (
+            f"sim_mtx_L{self.index.max_level}_"
+            f"A{self.index.alpha}_"
+            f"B{self.index.beta}_"
+            f"T{self.data.num_trajectories}.npz"
+        )
+
+    def get_default_similarity_matrix_path(self) -> Path:
+        """获取默认共享相似度矩阵路径。"""
+        from src.utils.path_manager import get_path_manager
+
+        return get_path_manager().get_similarity_matrix_path(
+            self.get_default_similarity_matrix_filename()
+        )
+
+    def get_effective_similarity_matrix_path(self) -> Path:
+        """获取当前配置实际使用的相似度矩阵路径。"""
+        explicit_path = self.data.get_similarity_matrix_path()
+        if explicit_path is not None:
+            return explicit_path
+        return self.get_default_similarity_matrix_path()
+
+    def get_experiment_similarity_matrix_path(self) -> Path:
+        """获取当前实验的私有相似度矩阵路径。"""
+        return self.experiment.get_similarity_dir() / self.get_default_similarity_matrix_filename()
 
     # 向后兼容性属性
     @property
