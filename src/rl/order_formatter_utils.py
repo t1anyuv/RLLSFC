@@ -102,11 +102,12 @@ def find_active_parent(cell: QuadTreeCell) -> Optional[QuadTreeCell]:
     return None
 
 
-def assemble_ordering(qc_to_info: Dict) -> List[Dict]:
+def assemble_ordering(qc_to_info: Dict, max_level: int) -> List[Dict]:
     """构造最终导出结构。
     
     参数:
         qc_to_info: QC 到 Info 的映射
+        max_level: 四叉树最大层级
         
     返回:
         排序后的配置列表
@@ -122,7 +123,7 @@ def assemble_ordering(qc_to_info: Dict) -> List[Dict]:
         ordering.append({
             "quad_code": combined_codes,
             "order": info["order"],
-            "parent": build_parent_descriptor(cell, cell.max_level if hasattr(cell, 'max_level') else 8)
+            "parent": build_parent_descriptor(cell, max_level)
         })
     
     return ordering

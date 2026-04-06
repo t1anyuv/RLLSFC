@@ -7,7 +7,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from src.config import TShapeConfig
 from src.indexing import QuadTreeIndex
 from src.training import TraversalTrainer
-from src.utils.path_manager import get_path_manager
 
 
 class LSFCEvaluator:
@@ -55,32 +54,33 @@ class LSFCEvaluator:
         """
         model_dir = Path(model_dir)
         metrics_files = sorted(model_dir.glob("ep*_metrics.json"))
-        
+
         if not metrics_files:
             self.logger.warning(f"在 {model_dir} 中未找到任何 metrics 文件")
             return None, None
-        
+
         best_hgs = -float('inf')
         best_record = None
-        
+
         print(f"\n{'Episode':<10} | {'Train Imp':<10} | {'Val Imp':<10} | {'Test Imp':<10} | {'HGS Score':<10}")
         print("-" * 70)
-        
+
         for metrics_file in metrics_files:
             try:
                 with open(metrics_file, 'r', encoding='utf-8') as f:
                     metrics = json.load(f)
-                
+
                 episode = metrics.get('episode', 0)
                 val_imp = metrics.get('val', {}).get('improvement_percent', 0)
                 test_imp = metrics.get('test', {}).get('improvement_percent', 0)
                 train_imp = metrics.get('train', {}).get('improvement_percent', 0) if metrics.get('train') else 0
-                
+
                 # 计算 HGS 得分: (I_val + I_test) / 2
                 hgs_score = (val_imp + test_imp) / 2
-                
-                print(f"{episode:<10} | {train_imp:>+9.2f}% | {val_imp:>+9.2f}% | {test_imp:>+9.2f}% | {hgs_score:>9.4f}")
-                
+
+                print(
+                    f"{episode:<10} | {train_imp:>+9.2f}% | {val_imp:>+9.2f}% | {test_imp:>+9.2f}% | {hgs_score:>9.4f}")
+
                 if hgs_score > best_hgs:
                     best_hgs = hgs_score
                     # 构建对应的模型文件名
@@ -88,7 +88,7 @@ class LSFCEvaluator:
                     if not model_file.exists():
                         # 回退查找任意匹配 episode 的模型文件
                         model_file = model_dir / f"model_ep_{episode}.pth"
-                    
+
                     best_record = {
                         "model_path": model_file,
                         "metrics_file": metrics_file,
@@ -102,15 +102,15 @@ class LSFCEvaluator:
             except Exception as e:
                 self.logger.warning(f"读取 {metrics_file} 失败: {e}")
                 continue
-        
+
         print("-" * 70)
-        
+
         if best_record:
             print(f"[*] 最佳模型: Episode {best_record['episode']}, HGS={best_hgs:.4f}")
             print(f"    路径: {best_record['model_path']}\n")
-        
+
         return best_record["model_path"] if best_record else None, best_record
-    
+
     def process_best_model(self, model_dir: str, pipeline: Any) -> Dict[str, Any]:
         """
         从 metrics 文件中选择最佳模型并处理后导出。
@@ -124,22 +124,22 @@ class LSFCEvaluator:
         """
         # 1. 选择最佳模型
         best_model_path, best_record = self.select_best_model_from_metrics(model_dir)
-        
+
         if best_model_path is None or not best_model_path.exists():
             raise FileNotFoundError(f"未找到有效的最佳模型: {best_model_path}")
-        
+
         # 2. 加载模型并生成遍历顺序
         pipeline.load_trained_model(str(best_model_path))
         pipeline.trainer.agent.actor.eval()
         quadorder = pipeline.generate_quadorder()
-        
+
         # 3. 更新状态
         self.best_model_path = best_model_path
         self.quadorder = quadorder
         self.processing_metadata["evaluation"] = {
-            'i_val': best_record['val_improvement'],
-            'i_test': best_record['test_improvement'],
-            'i_train': best_record['train_improvement'],
+            'val_improvement': best_record['val_improvement'],
+            'test_improvement': best_record['test_improvement'],
+            'train_improvement': best_record['train_improvement'],
             'hgs_score': best_record['hgs_score'],
             'episode': best_record['episode'],
             'metrics': best_record['metrics']
@@ -149,20 +149,20 @@ class LSFCEvaluator:
             "quadorder_length": len(quadorder),
             "quadtree_stats": pipeline.trainer.quadtree.get_quadtree_stats(),
         })
-        
+
         # 4. 导出结果
         export_results = self.export_formats(pipeline.trainer, base_prefix="best_order")
-        
+
         # 5. 保存最佳模型记录
         self._save_best_model_record(best_record)
-        
+
         return {
             "best_model_path": str(best_model_path),
             "hgs_score": best_record['hgs_score'],
             "export_results": export_results,
             "summary_report": self.get_summary_report()
         }
-    
+
     def _save_best_model_record(self, best_record: Dict) -> None:
         """保存最佳模型记录。"""
         record_path = self.output_dir / "best_model_record.json"
@@ -178,7 +178,7 @@ class LSFCEvaluator:
                 "train_improvement": best_record['train_improvement'],
             }, f, indent=2, ensure_ascii=False)
         self.logger.info(f"最佳模型记录已保存: {record_path}")
-    
+
     def _create_evaluator(self, trainer, queries):
         """创建评估器"""
         from src.evaluation.traversal_evaluator import TraversalPerformanceEvaluator
@@ -229,44 +229,44 @@ class LSFCEvaluator:
         """
         if not self.quadorder:
             raise RuntimeError("导出前必须先执行推断或 process_quadorder")
-        
+
         # 生成带时间戳的文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         exp_name = experiment_name or self.config.experiment.name
         base_prefix = f"{exp_name}_final_{timestamp}"
-        
+
         environment = trainer.environment
         environment.visited_order = self.quadorder
-        
+
         # 生成配置文件
         data, json_path = self.trajectory_processor.generate_config_file(
             environment, trainer.quadtree,
             filename=f"{base_prefix}.json"
         )
-        
+
         # 同时保存简化版本（只有遍历顺序）
         order_only_path = self.output_dir / f"{base_prefix}_order_only.json"
         order_data = {
             "experiment_name": exp_name,
             "timestamp": timestamp,
             "order_length": len(self.quadorder),
-            "quadorder": [cell.code for cell in self.quadorder if hasattr(cell, 'code')],
+            "quadorder": [cell.code for cell in self.quadorder],
         }
         with open(order_only_path, 'w', encoding='utf-8') as f:
             json.dump(order_data, f, indent=2, ensure_ascii=False)
-        
+
         self.logger.info(f"最终配置已导出: {json_path}")
         self.logger.info(f"遍历顺序已导出: {order_only_path}")
-        
+
         print(self.get_summary_report())
-        
+
         return {
             "json_path": json_path,
             "order_only_path": order_only_path,
             "base_prefix": base_prefix,
             "timestamp": timestamp
         }
-    
+
     def get_summary_report(self) -> str:
         """生成格式化评估汇总。"""
         if "evaluation" not in self.processing_metadata:
@@ -274,7 +274,7 @@ class LSFCEvaluator:
 
         eval_m = self.processing_metadata["evaluation"]
         qs = self.processing_metadata.get("quadtree_stats", {})
-        
+
         # 只支持新的评估数据格式
         val_imp = eval_m.get('val_improvement', 0)
         test_imp = eval_m.get('test_improvement', 0)
@@ -296,7 +296,7 @@ class LSFCEvaluator:
             f" >>> HGS Score:    {hgs:>10.4f} <<<",
             "-" * 65,
         ]
-        
+
         # 添加详细指标（如果有）
         val_metrics = eval_m.get('val_metrics')
         if val_metrics:
@@ -304,12 +304,12 @@ class LSFCEvaluator:
                 f" QuadCode Cost:    {val_metrics.get('quadcode_avg_cost', 'N/A'):>10.2f}",
                 f" QuadOrder Cost:   {val_metrics.get('quadorder_avg_cost', 'N/A'):>10.2f}",
             ])
-        
+
         report.extend([
             f" Output Dir:       {self.output_dir}",
             "=" * 65 + "\n"
         ])
-        
+
         return "\n".join(report)
 
     def get_config_summary(self) -> Dict[str, Any]:
@@ -323,7 +323,7 @@ class LSFCEvaluator:
     def get_evaluator(self, trainer: TraversalTrainer):
         """获取评估器实例"""
         from src.evaluation.traversal_evaluator import TraversalPerformanceEvaluator
-        
+
         # 尝试加载保存的查询集
         reference_queries = self._load_saved_queries('reference_queries.pkl')
         if reference_queries is None:
@@ -331,7 +331,7 @@ class LSFCEvaluator:
             reference_queries = trainer.environment.reference_queries
         else:
             self.logger.info(f"已加载保存的参考查询集: {len(reference_queries)} 个查询")
-        
+
         return TraversalPerformanceEvaluator(
             trainer.quadtree, trainer.encoder, trainer.cost_evaluator,
             reference_queries=reference_queries,
@@ -344,29 +344,28 @@ class LSFCEvaluator:
         if test_queries is not None:
             self.logger.info(f"已加载保存的测试查询集: {len(test_queries)} 个查询")
             return test_queries
-        
+
         # 如果没有保存的查询集，直接使用保存的测试集
         self.logger.warning("未找到保存的测试查询集，尝试加载 test_queries.pkl")
         test_queries = self._load_saved_queries('test_queries.pkl')
         if test_queries is None:
             raise RuntimeError("无法加载测试查询集")
         return test_queries
-    
+
     def _load_saved_queries(self, filename: str):
         """加载保存的查询集"""
         import pickle
         from src.utils.path_manager import get_path_manager
-        
+
         pm = get_path_manager()
         # 使用实验名称获取正确的查询集目录
         queries_dir = pm.get_queries_dir(self.config.experiment.name)
         query_path = queries_dir / filename
-        
+
         if query_path.exists():
             self.logger.info(f"从 {query_path} 加载查询集")
             with open(query_path, 'rb') as f:
                 return pickle.load(f)
-        
+
         self.logger.warning(f"查询集文件不存在: {query_path}")
         return None
-

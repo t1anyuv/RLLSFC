@@ -1,7 +1,7 @@
 ﻿"""
 使用少量episode对TraversalEnvironment与策略网络进行调试，展示关键中间结果
 运行方式：
-    python -m scripts.experiments.train_debug --config resource/experiments/test/config.yaml
+    python -m scripts.experiments.train_debug --config resource/experiments/debug/config.yaml
 """
 import argparse
 import json

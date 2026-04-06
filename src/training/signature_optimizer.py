@@ -55,11 +55,7 @@ class SignatureOptimizer:
 
     @staticmethod
     def _bit_count(value: int) -> int:
-        value = int(value)
-        bit_count = getattr(value, "bit_count", None)
-        if callable(bit_count):
-            return bit_count()
-        return bin(value).count("1")
+        return bin(int(value)).count("1")
 
     def evaluate_partition(
             self,

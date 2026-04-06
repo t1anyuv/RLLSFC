@@ -191,7 +191,7 @@ class TestQuadTreeWithStorage:
         
         # 验证存储
         assert storage.has_trajectory(1)
-        assert quadtree.trajectory_to_cell[1] is not None
+        assert quadtree.trajectory_to_cells[1] is not None
         
         # 验证MBR计算
         mbr = storage.get_trajectory_mbr(1)
@@ -216,7 +216,7 @@ class TestQuadTreeWithStorage:
             assert storage.has_trajectory(1)
             
             # 测试相交查询
-            cell = quadtree.trajectory_to_cell[1]
+            cell = quadtree.trajectory_to_cells[1]
             assert quadtree.trajectory_intersects_cell(1, cell)
             
             storage.close()

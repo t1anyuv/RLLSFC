@@ -17,7 +17,7 @@ def collect_index_stats(index: QuadTreeIndex) -> dict:
     仅统计未被标记为 muted 的活跃单元格。
     """
     # 获取所有非屏蔽单元格
-    active_cells = [cell for cell in index.all_cells.values() if not getattr(cell, 'muted', False)]
+    active_cells = [cell for cell in index.all_cells.values() if not cell.muted]
 
     stats = {
         "total_active_cells": len(active_cells),
@@ -119,7 +119,7 @@ def run_pruning_analysis(data_path: str, max_level: int, alpha: int, beta: int, 
 
     # 4. 执行剪枝
     print(f"🔥 执行剪枝 (阈值: {min_cell_trajs})...")
-    prune_report = index.post_prune_tree(min_cell_trajs=min_cell_trajs, enable_optimize=True)
+    prune_report = index.post_prune_tree(min_cell_trajs=min_cell_trajs)
 
     # 5. 采集剪枝后状态
     stats_after = collect_index_stats(index)

@@ -46,7 +46,7 @@ class QuadTreeIndex:
 
         # 轨迹存储后端
         self._storage = storage or InMemoryTrajectoryStorage()
-        self.trajectory_to_cell: Dict[int, QuadTreeCell] = {}
+        self.trajectory_to_cells: Dict[int, QuadTreeCell] = {}
         
         # 内存与磁盘模式
         if isinstance(self._storage, InMemoryTrajectoryStorage):
@@ -190,11 +190,11 @@ class QuadTreeIndex:
 
     def _rebuild_trajectory_index(self) -> None:
         """重建轨迹到单元格的实时映射。"""
-        self.trajectory_to_cell.clear()
+        self.trajectory_to_cells.clear()
         # 仅遍历非屏蔽单元格
         for cell in self.iter_active_cells():
             for trajectory_id in cell.trajectories:
-                self.trajectory_to_cell[trajectory_id] = cell
+                self.trajectory_to_cells[trajectory_id] = cell
 
     def _perform_bottom_up_merge(self, cells_by_level: list, min_cell_trajs: int) -> Dict:
         """内部方法：执行拓扑剪枝合并。"""
@@ -224,7 +224,7 @@ class QuadTreeIndex:
                 if not parent_ee.contains(traj_mbr):
                     raise AssertionError(f"轨迹 {tid} 移动失败：父级 EE 无法包围其 MBR")
 
-                self.trajectory_to_cell[tid] = cell.parent
+                self.trajectory_to_cells[tid] = cell.parent
 
             cell.parent.trajectories.update(cell.trajectories)
             cell.parent.trajectory_mbrs.update(cell.trajectory_mbrs)
@@ -236,7 +236,7 @@ class QuadTreeIndex:
 
     def _validate_reassignment(self, traj_id: int, points: List[Tuple[float, float]]) -> None:
         """验证轨迹重新分配的一致性。"""
-        old_cell = self.trajectory_to_cell[traj_id]
+        old_cell = self.trajectory_to_cells[traj_id]
         old_points = self._storage.get_trajectory(traj_id)
         self.validator.validate_reassignment(traj_id, points, old_cell, old_points, self)
 
@@ -245,7 +245,7 @@ class QuadTreeIndex:
         active_cells = self.get_active_cells()
         self.validator.validate_merge_results(
             initial_tids, initial_count, min_threshold,
-            active_cells, self.trajectory_to_cell, self.root
+            active_cells, self.trajectory_to_cells, self.root
         )
 
     def _process_cell_signatures(self, cells_by_level: list, stats: Dict, enable_optimize: bool) -> None:
@@ -363,7 +363,7 @@ class QuadTreeIndex:
             from src.utils.signature import compute_traj_signature
             cell.signatures[traj_id] = compute_traj_signature(self.alpha, self.beta, cell, points)
 
-            self.trajectory_to_cell[traj_id] = cell
+            self.trajectory_to_cells[traj_id] = cell
 
     def compute_target_level(self, bbox: SpatialBoundingBox) -> int:
         """计算轨迹对应层级。

@@ -1,4 +1,4 @@
-﻿from math import log
+from math import log
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
@@ -55,10 +55,10 @@ class TraversalCostEvaluator:
         if cached is not None:
             return cached
 
-        trajectory_to_cells = getattr(self.quadtree, "trajectory_to_cells", None)
-        trajectory_mbrs = getattr(self.quadtree, "trajectory_mbrs", None)
+        trajectory_to_cell = self.quadtree.trajectory_to_cells
+        trajectory_mbrs = self.quadtree.trajectory_mbrs
 
-        if trajectory_to_cells is not None and trajectory_mbrs is not None:
+        if trajectory_to_cell is not None and trajectory_mbrs is not None:
             similarity = self._jaccard_with_index(cell_a, cell_b, trajectory_mbrs)
         else:
             similarity = self._jaccard_fallback(cell_a, cell_b)

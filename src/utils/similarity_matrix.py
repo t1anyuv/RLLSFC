@@ -189,7 +189,7 @@ class SimilarityMatrix:
 
         # 提取单元格唯一标识用于验证
         cell_ids = np.array([
-            ",".join(map(str, getattr(c, 'quadrant_sequence', [])))
+            ",".join(map(str, c.quadrant_sequence))
             for c in self.all_cells
         ], dtype=str)
 
@@ -227,7 +227,7 @@ class SimilarityMatrix:
 
             # 验证序列一致性
             current_ids = [
-                ",".join(map(str, getattr(c, 'quadrant_sequence', []))) 
+                ",".join(map(str, c.quadrant_sequence))
                 for c in all_cells
             ]
             if not np.array_equal(loaded_ids, current_ids):

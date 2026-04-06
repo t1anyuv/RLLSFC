@@ -156,7 +156,7 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
 
         error_tid = list(missing)[0]
         traj_points = index.trajectory_points.get(error_tid)
-        assigned_cell = index.trajectory_to_cell.get(error_tid)
+        assigned_cell = index.trajectory_to_cells.get(error_tid)
         traj_mbr = index.trajectory_mbrs.get(error_tid)
 
         print("\n" + "=" * 60)
@@ -218,7 +218,7 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
 
     def trace_missing_path(self, index, tid, q_bbox):
         """追踪路径，显式传入 index"""
-        cell = index.trajectory_to_cell.get(tid)
+        cell = index.trajectory_to_cells.get(tid)
         path = []
         curr = cell
         while curr:

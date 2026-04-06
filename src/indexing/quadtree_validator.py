@@ -53,10 +53,10 @@ class QuadTreeValidator:
         new_cell = quadtree.get_cell_at(new_bbox.min_x, new_bbox.min_y, new_lvl)
 
         self.logger.info(
-            f"  - Old Cell: Level {old_cell.level}, Path: {getattr(old_cell, 'quadrant_sequence', 'N/A')}"
+            f"  - Old Cell: Level {old_cell.level}, Path: {old_cell.quadrant_sequence}"
         )
         self.logger.info(
-            f"  - New Cell: Level {new_lvl}, Path: {getattr(new_cell, 'quadrant_sequence', 'N/A')}"
+            f"  - New Cell: Level {new_lvl}, Path: {new_cell.quadrant_sequence if new_cell is not None else None}"
         )
 
         cell_match = (old_cell == new_cell)
@@ -83,7 +83,7 @@ class QuadTreeValidator:
             initial_count: 初始轨迹总数
             min_threshold: 最小轨迹数阈值
             active_cells: 活跃单元格列表
-            trajectory_to_cell: 轨迹到单元格的映射
+            trajectory_to_cells: 轨迹到单元格的映射
             root_cell: 根节点
             
         异常:
@@ -108,7 +108,7 @@ class QuadTreeValidator:
         for tid in initial_tids:
             mapped_cell = trajectory_to_cell.get(tid)
             # 验证轨迹是否在映射表中
-            assert mapped_cell is not None, f"轨迹 {tid} 在 trajectory_to_cell 映射表中丢失"
+            assert mapped_cell is not None, f"轨迹 {tid} 在 trajectory_to_cells 映射表中丢失"
             # 验证映射的 Cell 是否为活跃状态
             assert not mapped_cell.muted, f"轨迹 {tid} 映射到了已屏蔽的 Cell {mapped_cell.code}"
             # 验证 Cell 内部是否真的持有该轨迹
@@ -141,7 +141,7 @@ class QuadTreeValidator:
                 mapped = trajectory_to_cell.get(tid)
                 if mapped:
                     self.logger.error(
-                        f"  > 映射表(trajectory_to_cell)当前指向: "
+                        f"  > 映射表(trajectory_to_cells)当前指向: "
                         f"Level {mapped.level} [Path: {'->'.join(map(str, mapped.quadrant_sequence))}]"
                     )
 

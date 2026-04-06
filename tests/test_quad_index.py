@@ -41,14 +41,14 @@ class TestQuadTreeIndexOptimization(unittest.TestCase):
         self.index.assign_trajectory(traj_id, points)
 
         # 获取初始分配的 Cell
-        initial_cell = self.index.trajectory_to_cell[traj_id]
+        initial_cell = self.index.trajectory_to_cells[traj_id]
         self.assertEqual(initial_cell.level, self.max_level)
 
         # 执行剪枝，设置一个极大的阈值迫使节点合并
         self.index.post_prune_tree(min_cell_trajs=100)
 
         # 验证轨迹是否移动到了根节点（因为所有中间节点都被屏蔽了）
-        new_cell = self.index.trajectory_to_cell[traj_id]
+        new_cell = self.index.trajectory_to_cells[traj_id]
         self.assertEqual(new_cell.level, 0)
         self.assertTrue(initial_cell.muted)
 

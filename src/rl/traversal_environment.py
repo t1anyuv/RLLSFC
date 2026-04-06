@@ -165,7 +165,7 @@ class TraversalEnvironment:
 
     def _sample_global_query_indices(self, current_step: int, done: bool) -> List[int]:
         """Sample query indices for training-time global reward estimation."""
-        cached = getattr(self, "_global_query_indices_by_checkpoint", {}).get(current_step)
+        cached = self._global_query_indices_by_checkpoint.get(current_step)
         if cached is not None:
             return cached
 
@@ -312,7 +312,7 @@ class TraversalEnvironment:
     def _compute_global_reward(self, quadorder: List[QuadTreeCell], current_step: int, done: bool) -> Tuple[float, float, dict]:
         """Evaluate the current prefix against cached quadCode query costs."""
         prefix_key = self._prefix_cache_key(quadorder)
-        cached_result = getattr(self, "_global_reward_result_cache", {}).get(prefix_key)
+        cached_result = self._global_reward_result_cache.get(prefix_key)
         if cached_result is not None:
             return cached_result
 

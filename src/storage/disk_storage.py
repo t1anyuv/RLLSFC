@@ -249,7 +249,9 @@ class DiskTrajectoryStorage(TrajectoryStorage):
             self._data_file = None
     
     def __len__(self) -> int:
-        """返回轨迹总数。"""
+        """???????????"""
+        if self._index is None:
+            self._ensure_open()
         return self._num_trajectories
     
     @property
