@@ -2,7 +2,6 @@ import argparse
 from pathlib import Path
 
 from src.config import TShapeConfig
-from src.resource import get_similarity_matrix_path
 from src.training import TraversalTrainer
 
 
@@ -66,7 +65,7 @@ def main():
     )
 
     # 4. 保存与统计
-    save_path = args.output_file or str(get_similarity_matrix_path())
+    save_path = args.output_file or str(config.get_default_similarity_matrix_path())
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     sim_matrix.save(save_path)
 
