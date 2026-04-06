@@ -49,11 +49,18 @@ class TraversalCostEvaluator:
         normalised = min(distance / normaliser, 1.0)
         return 1.0 - normalised
 
-    def jaccard_similarity(self, cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> float:
-        cache_key = self._jaccard_cache_key(cell_a, cell_b)
-        cached = self._jaccard_cache.get(cache_key)
-        if cached is not None:
-            return cached
+    def jaccard_similarity(
+            self,
+            cell_a: QuadTreeCell,
+            cell_b: QuadTreeCell,
+            use_cache: bool = True,
+    ) -> float:
+        cache_key = None
+        if use_cache:
+            cache_key = self._jaccard_cache_key(cell_a, cell_b)
+            cached = self._jaccard_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         trajectory_to_cell = self.quadtree.trajectory_to_cells
         trajectory_mbrs = self.quadtree.trajectory_mbrs
@@ -63,7 +70,8 @@ class TraversalCostEvaluator:
         else:
             similarity = self._jaccard_fallback(cell_a, cell_b)
 
-        self._jaccard_cache[cache_key] = similarity
+        if use_cache and cache_key is not None:
+            self._jaccard_cache[cache_key] = similarity
         return similarity
 
     @staticmethod

@@ -1,9 +1,11 @@
 """相似度矩阵预计算工具。"""
 import logging
+import multiprocessing
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from typing import Deque, Dict, Iterator, List, Optional, Tuple, Any
 
 import numpy as np
 from tqdm import tqdm
@@ -13,8 +15,22 @@ from src.indexing.quadtree_index import QuadTreeIndex
 from src.reward.cost_evaluator import TraversalCostEvaluator
 
 
+_WORKER_COST_EVALUATOR: Optional[TraversalCostEvaluator] = None
+_WORKER_ALL_CELLS: Optional[List[QuadTreeCell]] = None
+
+
+def _init_similarity_worker(
+    cost_evaluator: TraversalCostEvaluator,
+    all_cells: List[QuadTreeCell]
+) -> None:
+    """Initialize shared read-only state once per child process."""
+    global _WORKER_COST_EVALUATOR, _WORKER_ALL_CELLS
+    _WORKER_COST_EVALUATOR = cost_evaluator
+    _WORKER_ALL_CELLS = all_cells
+
+
 def _compute_chunk_task(
-    task_data: Tuple[List[Tuple[int, int]], Any, List[QuadTreeCell]]
+    indices_pairs: List[Tuple[int, int]]
 ) -> List[Tuple[int, int, float]]:
     """子进程执行的任务函数：计算一批单元格对的相似度。
     
@@ -24,10 +40,16 @@ def _compute_chunk_task(
     返回:
         (i, j, similarity) 三元组列表
     """
-    indices_pairs, cost_evaluator, all_cells = task_data
+    if _WORKER_COST_EVALUATOR is None or _WORKER_ALL_CELLS is None:
+        raise RuntimeError("Similarity worker is not initialized")
+
     results = []
     for i, j in indices_pairs:
-        sim = cost_evaluator.jaccard_similarity(all_cells[i], all_cells[j])
+        sim = _WORKER_COST_EVALUATOR.jaccard_similarity(
+            _WORKER_ALL_CELLS[i],
+            _WORKER_ALL_CELLS[j],
+            use_cache=False,
+        )
         results.append((i, j, float(sim)))
     return results
 
@@ -83,8 +105,7 @@ class SimilarityMatrix:
         self._build_cell_index_mapping(all_cells)
 
         # 生成任务对
-        pairs = self._generate_task_pairs(n, use_symmetric)
-        total_pairs = len(pairs)
+        total_pairs = self._count_task_pairs(n, use_symmetric)
 
         self.logger.info(
             f"开始并行预计算相似度矩阵 (Workers: {num_workers}, Total: {total_pairs})"
@@ -92,10 +113,10 @@ class SimilarityMatrix:
         start_time = time.perf_counter()
 
         if num_workers <= 1:
-            self._compute_sequential(pairs, all_cells, use_symmetric, show_progress)
+            self._compute_sequential(n, all_cells, use_symmetric, show_progress)
         else:
             self._compute_parallel(
-                pairs, all_cells, use_symmetric, show_progress, 
+                n, all_cells, use_symmetric, show_progress,
                 num_workers, chunk_size, total_pairs
             )
 
@@ -105,36 +126,58 @@ class SimilarityMatrix:
             f"预计算完成！耗时: {elapsed:.2f}s | 速度: {total_pairs / elapsed:.1f} pairs/s"
         )
 
-    def _generate_task_pairs(self, n: int, use_symmetric: bool) -> List[Tuple[int, int]]:
+    def _count_task_pairs(self, n: int, use_symmetric: bool) -> int:
         """生成需要计算的单元格对。"""
-        pairs = []
+        if use_symmetric:
+            return n * (n + 1) // 2
+        return n * n
+
+    def _generate_task_pairs(self, n: int, use_symmetric: bool) -> Iterator[Tuple[int, int]]:
+        """鐢熸垚闇€瑕佽绠楃殑鍗曞厓鏍煎銆?"""
         if use_symmetric:
             for i in range(n):
                 for j in range(i, n):
-                    pairs.append((i, j))
+                    yield (i, j)
         else:
             for i in range(n):
                 for j in range(n):
-                    pairs.append((i, j))
-        return pairs
+                    yield (i, j)
+
+    def _generate_task_chunks(
+        self,
+        n: int,
+        use_symmetric: bool,
+        chunk_size: int
+    ) -> Iterator[List[Tuple[int, int]]]:
+        """鎸夊潡鐢熸垚闇€瑕佽绠楃殑鍗曞厓鏍煎銆?"""
+        chunk: List[Tuple[int, int]] = []
+        for pair in self._generate_task_pairs(n, use_symmetric):
+            chunk.append(pair)
+            if len(chunk) >= chunk_size:
+                yield chunk
+                chunk = []
+        if chunk:
+            yield chunk
 
     def _compute_sequential(
         self,
-        pairs: List[Tuple[int, int]],
+        n: int,
         all_cells: List[QuadTreeCell],
         use_symmetric: bool,
         show_progress: bool
     ) -> None:
         """顺序计算相似度矩阵。"""
-        for i, j in tqdm(pairs, disable=not show_progress, desc="顺序计算"):
-            sim = self.cost_evaluator.jaccard_similarity(all_cells[i], all_cells[j])
+        pairs = self._generate_task_pairs(n, use_symmetric)
+        total_pairs = self._count_task_pairs(n, use_symmetric)
+        for i, j in tqdm(pairs, total=total_pairs, disable=not show_progress, desc="顺序计算"):
+            sim = self.cost_evaluator.jaccard_similarity(all_cells[i], all_cells[j], use_cache=False)
             self.matrix_array[i, j] = sim
             if use_symmetric:
                 self.matrix_array[j, i] = sim
 
     def _compute_parallel(
         self,
-        pairs: List[Tuple[int, int]],
+        n: int,
         all_cells: List[QuadTreeCell],
         use_symmetric: bool,
         show_progress: bool,
@@ -143,22 +186,40 @@ class SimilarityMatrix:
         total_pairs: int
     ) -> None:
         """并行计算相似度矩阵。"""
-        chunks = [pairs[i:i + chunk_size] for i in range(0, len(pairs), chunk_size)]
+        mp_context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=num_workers,
+            mp_context=mp_context,
+            initializer=_init_similarity_worker,
+            initargs=(self.cost_evaluator, all_cells),
+        ) as executor:
+            chunk_iter = self._generate_task_chunks(n, use_symmetric, chunk_size)
+            pending: Deque = deque()
 
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = [
-                executor.submit(_compute_chunk_task, (chunk, self.cost_evaluator, all_cells))
-                for chunk in chunks
-            ]
+            for _ in range(max(1, num_workers * 2)):
+                try:
+                    chunk = next(chunk_iter)
+                except StopIteration:
+                    break
+                pending.append(executor.submit(_compute_chunk_task, chunk))
 
             with tqdm(total=total_pairs, disable=not show_progress, desc="并行计算") as pbar:
-                for future in as_completed(futures):
-                    chunk_results = future.result()
-                    for i, j, sim in chunk_results:
-                        self.matrix_array[i, j] = sim
-                        if use_symmetric:
-                            self.matrix_array[j, i] = sim
-                    pbar.update(len(chunk_results))
+                while pending:
+                    done, _ = wait(list(pending), return_when=FIRST_COMPLETED)
+                    for future in done:
+                        pending.remove(future)
+                        chunk_results = future.result()
+                        for i, j, sim in chunk_results:
+                            self.matrix_array[i, j] = sim
+                            if use_symmetric:
+                                self.matrix_array[j, i] = sim
+                        pbar.update(len(chunk_results))
+
+                        try:
+                            chunk = next(chunk_iter)
+                        except StopIteration:
+                            continue
+                        pending.append(executor.submit(_compute_chunk_task, chunk))
 
     def get_similarity(self, cell_a: QuadTreeCell, cell_b: QuadTreeCell) -> float:
         """获取相似度，支持 O(1) 矩阵查询。"""
