@@ -96,7 +96,7 @@ def _assemble_ordering(qc_to_info: Dict[int, Dict[str, Any]], max_level: int) ->
 class TrajectoryOrderFormatter:
     """Generate the exported traversal order JSON."""
 
-    CONFIG_VERSION = "1.3"
+    CONFIG_VERSION = "1.4"
 
     def __init__(
         self,
@@ -160,6 +160,19 @@ class TrajectoryOrderFormatter:
         active_nodes: List[QuadTreeCell],
     ) -> Dict[str, Any]:
         all_cells = list(quadtree.all_cells.values())
+        max_shape_count = 0
+        max_partition_alpha = max((int(cell.alpha) for cell in all_cells), default=int(env.alpha))
+        max_partition_beta = max((int(cell.beta) for cell in all_cells), default=int(env.beta))
+        max_partition = max((int(cell.alpha) * int(cell.beta) for cell in all_cells), default=int(env.alpha) * int(env.beta))
+        min_trajs: Optional[int] = None
+        if self.config is not None:
+            min_trajs = int(self.config.index.min_cell_trajs)
+
+        for cell in all_cells:
+            if not cell.signatures:
+                continue
+            max_shape_count = max(max_shape_count, len(set(cell.signatures.values())))
+
         return {
             "total_cells": len(all_cells),
             "active_cells": len(active_nodes),
@@ -173,6 +186,11 @@ class TrajectoryOrderFormatter:
             "quadtree_max_level": int(quadtree.max_level),
             "global_alpha": int(env.alpha),
             "global_beta": int(env.beta),
+            "max_partition_alpha": max_partition_alpha,
+            "max_partition_beta": max_partition_beta,
+            "max_partition": max_partition,
+            "max_shape_count": max_shape_count,
+            "min_trajs": min_trajs,
             "generation_timestamp": datetime.now().isoformat(),
             "version": self.CONFIG_VERSION,
         }
