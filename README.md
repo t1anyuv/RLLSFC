@@ -60,10 +60,10 @@ pip install -r requirements.txt
 
 ```bash
 # 调试训练（快速测试）
-python -m scripts.experiments.train_debug --config resource/default.yaml
+python -m scripts.experiments.train_debug --config default.yaml
 
 # 运行完整训练流水线
-python -m scripts.experiments.run_pipeline --config resource/default.yaml --name my_experiment
+python -m scripts.experiments.run_pipeline --config default.yaml --name my_experiment
 ```
 
 ## 项目结构
@@ -85,7 +85,7 @@ LearnedTShape/
 │   │   ├── debug/
 │   │   ├── gaussian/
 │   │   └── skewed/
-│   └── default.yaml           # 默认配置
+├── default.yaml               # 默认配置
 │
 ├── src/                       # 源代码
 │   ├── config.py              # 统一配置管理
@@ -134,7 +134,7 @@ LearnedTShape/
 
 ## 配置系统
 
-项目使用统一的 YAML 配置文件，位于 `resource/default.yaml`：
+项目使用统一的 YAML 配置文件，位于 `default.yaml`：
 
 ```yaml
 experiment:
@@ -148,7 +148,7 @@ index:
 
 data:
   num_trajectories: -1         # 轨迹数量（-1表示全部）
-  use_tdrive_data: true        # 是否使用真实数据
+  source: dataset              # dataset / synthetic
 
 query:
   type: gaussian               # 查询类型: uniform/gaussian/skewed
@@ -194,7 +194,7 @@ python -m scripts.preprocess.generate_query_dataset --type skewed --size 200
 ### 3. 计算相似度矩阵
 
 ```bash
-python -m scripts.preprocess.similarity_matrix --config resource/default.yaml
+python -m scripts.preprocess.similarity_matrix --config default.yaml
 ```
 
 ### 4. 分析数据集
@@ -213,7 +213,7 @@ python -m scripts.analyze.raw_traj_distribution
 
 1. 复制默认配置：
 ```bash
-cp resource/default.yaml resource/experiments/my_exp/config.yaml
+cp default.yaml resource/experiments/my_exp/config.yaml
 ```
 
 2. 编辑配置文件修改参数
@@ -273,14 +273,6 @@ CD-Taxi（成都出租车）数据文件格式：
 ### 环境变量
 
 ```bash
-# TDrive数据路径
-export TDRIVE_DATA_DIR=/path/to/tdrive
-export TDRIVE_DATA_PATH=/path/to/tdrive/data.txt
-
-# CD-Taxi数据路径
-export CDTAXI_DATA_DIR=/path/to/cdtaxi
-export CDTAXI_DATA_PATH=/path/to/cdtaxi/data.txt
-
 # 资源目录
 export RESOURCE_BASE_DIR=resource
 

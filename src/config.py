@@ -10,7 +10,7 @@
 
 使用示例：
     # 从YAML文件加载配置
-    config = TShapeConfig.from_yaml('configs/default.yaml')
+    config = TShapeConfig.from_yaml('default.yaml')
     
     # 访问配置
     max_level = config.index.max_level
@@ -25,6 +25,29 @@ from typing import Optional, List, Tuple, Dict, Any
 import json
 import torch
 import yaml
+
+
+def _default_dataset_profiles() -> Dict[str, "DatasetProfileConfig"]:
+    return {
+        "tdrive": DatasetProfileConfig(
+            description="Beijing TDrive trajectory dataset",
+            trajectory_path=r"D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt",
+            query_root="resource/queries",
+            min_x=115.29,
+            min_y=39.00,
+            max_x=117.83,
+            max_y=41.50,
+        ),
+        "cdtaxi": DatasetProfileConfig(
+            description="Chengdu CDTaxi trajectory dataset",
+            trajectory_path=r"D:\dataset\Trajectory\Chengdu\cleaned_cd_taxi.txt",
+            query_root="resource/queries_chengdu",
+            min_x=104.04,
+            min_y=30.65,
+            max_x=104.13,
+            max_y=30.73,
+        ),
+    }
 
 
 @dataclass
@@ -69,20 +92,14 @@ class PathConfig:
     
     Attributes:
         resource_base_dir: 资源文件基础目录（支持相对路径和绝对路径）
-        tdrive_data_dir: TDrive数据集目录路径（支持相对路径和绝对路径）
-        tdrive_data_path: TDrive数据集文件路径（支持相对路径和绝对路径）
         
     注意：
         - 相对路径将相对于项目根目录解析
         - 可以通过环境变量覆盖：
           * PROJECT_ROOT: 项目根目录
           * RESOURCE_BASE_DIR: 资源基础目录
-          * TDRIVE_DATA_DIR: TDrive数据目录
-          * TDRIVE_DATA_PATH: TDrive数据文件路径
     """
     resource_base_dir: str = 'resource'
-    tdrive_data_dir: Optional[str] = None
-    tdrive_data_path: Optional[str] = None
 
     def _get_path_manager(self):
         """获取路径管理器实例"""
@@ -127,10 +144,30 @@ class PathConfig:
         if pm:
             if self.resource_base_dir:
                 pm.set_resource_base(self.resource_base_dir)
-            if self.tdrive_data_dir:
-                pm.set_tdrive_data_dir(self.tdrive_data_dir)
-            if self.tdrive_data_path:
-                pm.set_tdrive_data_path(self.tdrive_data_path)
+
+
+@dataclass
+class DatasetProfileConfig:
+    """单个数据集的路径与空间边界配置。"""
+
+    description: str = ""
+    trajectory_path: Optional[str] = None
+    query_root: Optional[str] = None
+    min_x: float = 0.0
+    min_y: float = 0.0
+    max_x: float = 1.0
+    max_y: float = 1.0
+
+    def get_bbox_tuple(self) -> Tuple[float, float, float, float]:
+        return self.min_x, self.min_y, self.max_x, self.max_y
+
+
+@dataclass
+class DatasetCatalogConfig:
+    """数据集目录表配置。"""
+
+    active: str = "tdrive"
+    profiles: Dict[str, DatasetProfileConfig] = field(default_factory=_default_dataset_profiles)
 
 
 @dataclass
@@ -189,7 +226,7 @@ class DataConfig:
     
     Attributes:
         num_trajectories: 加载的轨迹数量，-1表示加载全部
-        use_tdrive_data: 是否使用TDrive数据集（False则使用合成数据）
+        source: 轨迹来源，'dataset' 使用当前激活数据集，'synthetic' 使用合成数据
         use_similarity_matrix: 是否使用预计算的相似度矩阵
         similarity_matrix_path: 相似度矩阵文件路径（相对于resource/shared/similarity/）
         similarity_num_workers: 计算相似度矩阵时的工作进程数（None表示使用CPU核心数）
@@ -205,7 +242,7 @@ class DataConfig:
         disk_cache_mb: 磁盘存储LRU缓存大小(MB)
     """
     num_trajectories: int = 3000
-    use_tdrive_data: bool = True
+    source: str = "dataset"
     use_similarity_matrix: bool = True
     similarity_matrix_path: Optional[str] = None
     similarity_num_workers: Optional[int] = 4
@@ -248,9 +285,7 @@ class RewardConfig:
         global_reward_num_evals: 全局奖励计算次数
         global_reward_query_sample_size: 训练期每次全局奖励估计采样的查询数，None表示使用全部
         global_reward_frontload_exponent: 全局奖励checkpoint前置指数，越大越偏向前期触发
-        query_dataset_path: 查询数据集目录路径
         query_distribution_type: 查询分布类型（'uniform'/'skewed'/'gaussian'）
-        train_val_test_split: 训练集/验证集/测试集划分比例（用于原始数据划分）
         query_sample_ratio: 从预划分文件中采样的比例
     """
     tau_loc: float = 1.0
@@ -265,8 +300,6 @@ class RewardConfig:
     global_reward_query_sample_size: Optional[int] = 64
     global_reward_frontload_exponent: float = 1.5
 
-    # 查询数据集配置
-    query_dataset_path: str = "resource/queries"
     query_distribution_type: str = "skewed"
     query_sample_ratio: float = 1.0
 
@@ -377,7 +410,7 @@ class TShapeConfig:
     
     Examples:
         >>> # 从YAML文件加载
-        >>> config = TShapeConfig.from_yaml('configs/default.yaml')
+        >>> config = TShapeConfig.from_yaml('default.yaml')
         >>> 
         >>> # 访问配置
         >>> max_level = config.index.max_level
@@ -387,6 +420,7 @@ class TShapeConfig:
         >>> config.save_yaml('configs/my_config.yaml')
     """
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+    datasets: DatasetCatalogConfig = field(default_factory=DatasetCatalogConfig)
     index: IndexConfig = field(default_factory=IndexConfig)
     data: DataConfig = field(default_factory=DataConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
@@ -408,16 +442,20 @@ class TShapeConfig:
 
         if 'experiment' in data:
             config_dict['experiment'] = ExperimentConfig(**data['experiment'])
+        if 'datasets' in data:
+            datasets_data = data['datasets'].copy()
+            profiles_data = datasets_data.get('profiles', {}) or {}
+            datasets_data['profiles'] = {
+                name: DatasetProfileConfig(**profile_data)
+                for name, profile_data in profiles_data.items()
+            }
+            config_dict['datasets'] = DatasetCatalogConfig(**datasets_data)
         if 'index' in data:
             config_dict['index'] = IndexConfig(**data['index'])
         if 'data' in data:
             config_dict['data'] = DataConfig(**data['data'])
         if 'reward' in data:
-            reward_data = data['reward'].copy()
-            # 将list转换回tuple
-            if 'train_val_test_split' in reward_data and isinstance(reward_data['train_val_test_split'], list):
-                reward_data['train_val_test_split'] = tuple(reward_data['train_val_test_split'])
-            config_dict['reward'] = RewardConfig(**reward_data)
+            config_dict['reward'] = RewardConfig(**data['reward'])
         if 'train' in data:
             train_data = data['train'].copy()
             # 将list转换回tuple
@@ -426,7 +464,6 @@ class TShapeConfig:
             config_dict['train'] = TrainConfig(**train_data)
         if 'network' in data:
             network_data = data['network'].copy()
-            # 将list转换回tuple（如果hidden_dims需要是tuple）
             config_dict['network'] = NetworkConfig(**network_data)
         if 'paths' in data:
             config_dict['paths'] = PathConfig(**data['paths'])
@@ -506,6 +543,45 @@ class TShapeConfig:
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
+    def _resolve_optional_path(self, path: Optional[str]) -> Optional[Path]:
+        if not path:
+            return None
+
+        candidate = Path(path)
+        if candidate.is_absolute():
+            return candidate
+
+        from src.utils.path_manager import get_path_manager
+
+        return (get_path_manager().project_root / candidate).resolve()
+
+    def get_active_dataset_profile(self) -> Optional[DatasetProfileConfig]:
+        """获取当前激活的数据集配置。"""
+        return self.datasets.profiles.get(self.datasets.active)
+
+    def get_dataset_trajectory_path(self) -> Optional[Path]:
+        """获取当前数据集轨迹文件路径。"""
+        profile = self.get_active_dataset_profile()
+        if profile and profile.trajectory_path:
+            return self._resolve_optional_path(profile.trajectory_path)
+        return None
+
+    def get_query_dataset_root(self) -> Path:
+        """获取当前数据集对应的查询集根目录。"""
+        profile = self.get_active_dataset_profile()
+        if profile and profile.query_root:
+            resolved = self._resolve_optional_path(profile.query_root)
+            if resolved is not None:
+                return resolved
+        raise ValueError(f"当前数据集 {self.datasets.active} 未配置 query_root")
+
+    def get_effective_bbox_tuple(self) -> Tuple[float, float, float, float]:
+        """获取当前有效边界框，优先使用激活数据集的边界。"""
+        profile = self.get_active_dataset_profile()
+        if profile is not None:
+            return profile.get_bbox_tuple()
+        return self.index.get_bbox_tuple()
+
     def get_original_bbox(self):
         """获取原始边界框对象
         
@@ -513,11 +589,12 @@ class TShapeConfig:
             SpatialBoundingBox实例
         """
         from src.core.bounding_box import SpatialBoundingBox
+        min_x, min_y, max_x, max_y = self.get_effective_bbox_tuple()
         return SpatialBoundingBox(
-            min_x=self.index.min_x,
-            min_y=self.index.min_y,
-            max_x=self.index.max_x,
-            max_y=self.index.max_y
+            min_x=min_x,
+            min_y=min_y,
+            max_x=max_x,
+            max_y=max_y
         )
 
     def get_original_bbox_tuple(self) -> Tuple[float, float, float, float]:
@@ -526,12 +603,13 @@ class TShapeConfig:
         Returns:
             (min_x, min_y, max_x, max_y) 四元组
         """
-        return self.index.get_bbox_tuple()
+        return self.get_effective_bbox_tuple()
 
     def get_default_similarity_matrix_filename(self) -> str:
         """获取默认相似度矩阵文件名。"""
         return (
-            f"sim_mtx_L{self.index.max_level}_"
+            f"sim_mtx_{self.datasets.active}_"
+            f"L{self.index.max_level}_"
             f"A{self.index.alpha}_"
             f"B{self.index.beta}_"
             f"T{self.data.num_trajectories}.npz"
@@ -556,33 +634,3 @@ class TShapeConfig:
         """获取当前实验的私有相似度矩阵路径。"""
         return self.experiment.get_similarity_dir() / self.get_default_similarity_matrix_filename()
 
-    # 向后兼容性属性
-    @property
-    def max_level(self) -> int:
-        """向后兼容：访问index.max_level"""
-        return self.index.max_level
-
-    @property
-    def alpha(self) -> int:
-        """向后兼容：访问index.alpha"""
-        return self.index.alpha
-
-    @property
-    def beta(self) -> int:
-        """向后兼容：访问index.beta"""
-        return self.index.beta
-
-    @property
-    def num_trajectories(self) -> int:
-        """向后兼容：访问data.num_trajectories"""
-        return self.data.num_trajectories
-
-    @property
-    def tau_loc(self) -> float:
-        """向后兼容：访问reward.tau_loc"""
-        return self.reward.tau_loc
-
-    @property
-    def num_episodes(self) -> int:
-        """向后兼容：访问train.num_episodes"""
-        return self.train.num_episodes

@@ -19,7 +19,7 @@ class SignatureProcessor:
     def __init__(self, global_alpha: int, global_beta: int, max_workers: Optional[int] = None):
         self.global_alpha = global_alpha
         self.global_beta = global_beta
-        self.optimizer = SignatureOptimizer(alpha_range=(2, 6), beta_range=(2, 6))
+        self.optimizer = SignatureOptimizer(alpha_range=(2, 8), beta_range=(2, 8))
         self.max_workers = max_workers
         self.logger = logging.getLogger(self.__class__.__name__)
 

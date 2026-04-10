@@ -27,14 +27,12 @@ class SignatureOptimizer:
             beta_range: Tuple[int, int] = (2, 8),
             occupancy_weight: float = 0.3,
             discrimination_weight: float = 0.7,
-            score_improvement_threshold: float = 0.10,
             max_sample_trajs: int = 64,
     ):
         self.min_alpha, self.max_alpha = alpha_range
         self.min_beta, self.max_beta = beta_range
         self.occupancy_weight = occupancy_weight
         self.discrimination_weight = discrimination_weight
-        self.score_improvement_threshold = score_improvement_threshold
         self.max_sample_trajs = max_sample_trajs
 
     def _sample_trajectories(
@@ -96,17 +94,6 @@ class SignatureOptimizer:
         )
         return PartitionMetrics(alpha, beta, occupancy_ratio, discrimination, score)
 
-    def _is_significant_improvement(self, candidate_score: float, current_score: float) -> bool:
-        if candidate_score <= current_score:
-            return False
-        if current_score <= 0:
-            return candidate_score > 0
-        return ((candidate_score - current_score) / current_score) >= self.score_improvement_threshold
-
-    @staticmethod
-    def _distance_to_anchor(alpha: int, beta: int, anchor_alpha: int, anchor_beta: int) -> Tuple[int, int]:
-        return abs(alpha - anchor_alpha) + abs(beta - anchor_beta), abs(alpha * beta - anchor_alpha * anchor_beta)
-
     def find_best_config(
             self,
             global_alpha: int,
@@ -114,7 +101,7 @@ class SignatureOptimizer:
             traj_points_list: List[np.ndarray],
             cell: QuadTreeCell,
     ) -> Tuple[int, int]:
-        """Find the best adaptive partition using grid search anchored at global alpha/beta."""
+        """Find the best adaptive partition by grid search from global alpha/beta up to the configured max."""
         ee_bbox = cell.get_enlarged_element_bbox(global_alpha, global_beta)
         base_alpha = min(max(2, global_alpha), self.max_alpha)
         base_alpha = max(self.min_alpha, base_alpha)
@@ -123,23 +110,14 @@ class SignatureOptimizer:
         seed = int(cell.code * 1315423911) & 0xFFFFFFFF
 
         best = self.evaluate_partition(base_alpha, base_beta, traj_points_list, ee_bbox, seed)
-        best_distance = self._distance_to_anchor(best.alpha, best.beta, base_alpha, base_beta)
 
-        for alpha in range(self.min_alpha, self.max_alpha + 1):
-            for beta in range(self.min_beta, self.max_beta + 1):
+        for alpha in range(base_alpha, self.max_alpha + 1):
+            for beta in range(base_beta, self.max_beta + 1):
                 if alpha == base_alpha and beta == base_beta:
                     continue
 
                 candidate = self.evaluate_partition(alpha, beta, traj_points_list, ee_bbox, seed)
-                candidate_distance = self._distance_to_anchor(alpha, beta, base_alpha, base_beta)
-
-                if candidate.score > best.score:
+                if candidate.score > best.score * 1.1:
                     best = candidate
-                    best_distance = candidate_distance
-                    continue
-
-                if np.isclose(candidate.score, best.score) and candidate_distance < best_distance:
-                    best = candidate
-                    best_distance = candidate_distance
 
         return best.alpha, best.beta

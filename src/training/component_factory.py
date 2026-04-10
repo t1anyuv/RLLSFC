@@ -69,15 +69,18 @@ class TrainingComponentFactory:
         """
         bbox = quadtree.bbox
 
-        if self.config.data.use_tdrive_data and self.config.paths.tdrive_data_dir:
-            print("加载 TDrive 真实轨迹数据...")
+        dataset_path = self.config.get_dataset_trajectory_path()
+        dataset_name = self.config.datasets.active
+
+        if self.config.data.source == "dataset" and dataset_path is not None:
+            print(f"加载真实轨迹数据: {dataset_name} ({dataset_path})")
             trajectories = load_cleaned_dataset(
-                self.config.paths.tdrive_data_path,
+                str(dataset_path),
                 max_trajectories=self.config.data.num_trajectories if self.config.data.num_trajectories > 0 else None,
             )
 
             if not trajectories:
-                print("未找到有效 TDrive 数据，回退至合成数据。")
+                print(f"未找到有效数据集 {dataset_name}，回退至合成数据。")
                 trajectories = SyntheticTrajectoryFactory.generate(self.config.data.num_trajectories, bbox)
             elif not self.config.index.use_original_bbox:
                 print("执行轨迹归一化...")
@@ -132,13 +135,8 @@ class TrainingComponentFactory:
 
     def _load_and_split_queries(self) -> Tuple[List, List, List]:
         """加载查询数据集并划分为训练集/验证集/测试集"""
-        from pathlib import Path
 
-        dataset_path = Path(self.config.reward.query_dataset_path)
-        if not dataset_path.is_absolute():
-            # 相对路径，相对于项目根目录
-            project_root = Path(__file__).resolve().parent.parent.parent
-            dataset_path = project_root / dataset_path
+        dataset_path = self.config.get_query_dataset_root()
 
         dist_type = self.config.reward.query_distribution_type
 

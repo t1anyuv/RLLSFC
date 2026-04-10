@@ -30,9 +30,19 @@ ENV/
 .idea/
 
 # Resource directory (实验输出、查询数据、临时文件)
-resource/experiments/
-resource/queries/
-resource/temp/
+resource/*
+!resource/README.md
+
+# Tests
+tests/
+
+# Scripts: only keep experiments/* and preprocess/similarity_matrix.py
+scripts/*
+!scripts/experiments/
+!scripts/experiments/**
+!scripts/preprocess/
+scripts/preprocess/*
+!scripts/preprocess/similarity_matrix.py
 
 # Analysis outputs
 scripts/analyze/analysis_output/

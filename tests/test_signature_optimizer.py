@@ -42,7 +42,7 @@ class StubOptimizer(SignatureOptimizer):
         return PartitionMetrics(alpha, beta, 0.0, 0.0, score)
 
 
-def test_find_best_config_uses_grid_search_and_global_anchor():
+def test_find_best_config_uses_global_alpha_beta_as_search_lower_bound():
     optimizer = StubOptimizer(
         {
             (2, 2): 1.00,
@@ -72,10 +72,10 @@ def test_find_best_config_uses_grid_search_and_global_anchor():
         cell=cell,
     )
 
-    assert (best_alpha, best_beta) == (4, 2)
+    assert (best_alpha, best_beta) == (4, 3)
 
 
-def test_find_best_config_prefers_global_anchor_when_scores_tie():
+def test_find_best_config_keeps_base_config_when_scores_tie():
     optimizer = StubOptimizer(
         {
             (2, 2): 1.00,
@@ -110,6 +110,8 @@ def test_find_best_config_prefers_global_anchor_when_scores_tie():
 
 def test_signature_processor_applies_adaptive_partition_and_refreshes_signatures():
     processor = SignatureProcessor(global_alpha=3, global_beta=3)
+    assert processor.optimizer.max_alpha == 8
+    assert processor.optimizer.max_beta == 8
     processor.optimizer = StubOptimizer(
         {
             (2, 2): 1.00,
@@ -117,6 +119,7 @@ def test_signature_processor_applies_adaptive_partition_and_refreshes_signatures
             (3, 2): 0.95,
             (2, 3): 1.20,
             (2, 4): 1.18,
+            (4, 3): 1.10,
         }
     )
 
@@ -137,7 +140,7 @@ def test_signature_processor_applies_adaptive_partition_and_refreshes_signatures
         parallel=False,
     )
 
-    assert (cell.alpha, cell.beta) == (2, 3)
+    assert (cell.alpha, cell.beta) == (4, 3)
     assert set(cell.signatures.keys()) == {1, 2}
     assert 999 not in cell.signatures
-    assert result["shrunk_alpha"] == 1
+    assert result["shrunk_alpha"] == 0

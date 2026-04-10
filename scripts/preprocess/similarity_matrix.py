@@ -1,83 +1,68 @@
+﻿"""Precompute a similarity matrix from a YAML config."""
+
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
 
 from src.config import TShapeConfig
-from src.training import TraversalTrainer
+from src.reward import TraversalCostEvaluator
+from src.training.component_factory import TrainingComponentFactory
+from src.utils.similarity_matrix import SimilarityMatrix
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="预计算相似度矩阵")
-
-    # 核心参数：直接透传给 TShapeConfig
-    parser.add_argument("--max-level", type=int, default=9, help="四叉树最大层级")
-    parser.add_argument("--min-cell-trajs", type=int, default=3, help="剪枝阈值")
-    parser.add_argument("--num-trajectories", type=int, default=-1, help="轨迹数量 (-1 为全部)")
-    parser.add_argument("--use-tdrive-data", action="store_true", default=True, help="是否使用 TDrive 数据")
-
-    # 计算资源参数
-    parser.add_argument("--num-workers", type=int, default=None, help="并行工作进程数")
-    parser.add_argument("--output-file", type=str, default=None, help="手动指定输出路径")
-
+    parser.add_argument("--config", type=str, default="default.yaml", help="YAML 配置文件路径")
+    parser.add_argument("--dataset", type=str, default=None, help="覆盖配置中的激活数据集，例如 tdrive / cdtaxi")
+    parser.add_argument("--output-file", type=str, default=None, help="手动指定输出矩阵路径")
+    parser.add_argument("--num-workers", type=int, default=None, help="相似度计算并行 worker 数")
+    parser.add_argument("--force", action="store_true", help="即使目标文件已存在也重新计算")
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
+    config = TShapeConfig.from_yaml(args.config)
+    if args.dataset:
+        config.datasets.active = args.dataset
 
-    # 1. 构造配置对象
-    from src.config import IndexConfig, DataConfig
-    config = TShapeConfig(
-        index=IndexConfig(
-            max_level=args.max_level,
-            min_cell_trajs=args.min_cell_trajs,
-            use_prune=(args.min_cell_trajs is not None)
-        ),
-        data=DataConfig(
-            num_trajectories=args.num_trajectories,
-            use_tdrive_data=args.use_tdrive_data
-        )
+    output_path = Path(args.output_file) if args.output_file else config.get_effective_similarity_matrix_path()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_path.exists() and not args.force:
+        print(f"相似度矩阵已存在，跳过计算: {output_path}")
+        return
+
+    factory = TrainingComponentFactory(config)
+    quadtree = factory.create_quadtree()
+    trajectories = factory.load_trajectories(quadtree)
+    print(f"开始分配轨迹，共 {len(trajectories)} 条")
+    for trajectory_id, points in trajectories:
+        quadtree.assign_trajectory(trajectory_id, points)
+
+    if config.index.min_cell_trajs is not None:
+        quadtree.post_prune_tree(config.index.min_cell_trajs)
+    quadtree.compute_signatures(config.index.enable_sig_optimize)
+
+    all_cells = [cell for cell in quadtree.get_all_cells() if not cell.muted]
+    cost_evaluator = TraversalCostEvaluator(quadtree)
+    matrix = SimilarityMatrix(quadtree, cost_evaluator)
+    num_workers = args.num_workers if args.num_workers is not None else config.data.similarity_num_workers
+
+    print("=" * 60)
+    print(
+        f"预计算相似度矩阵 | dataset={config.datasets.active} | "
+        f"cells={len(all_cells)} | output={output_path}"
     )
-
     print("=" * 60)
-    print(f"🚀 启动预计算流程 | 目标层级: L{config.index.max_level} | 剪枝阈值: M{config.index.min_cell_trajs}")
-    print("=" * 60)
+    matrix.compute(all_cells, use_symmetric=True, show_progress=True, num_workers=num_workers)
+    matrix.save(str(output_path))
 
-    # 2. 实例化并调用现成的流程
-    trainer = TraversalTrainer(config)
-
-    # 调用setup()自动完成：创建四叉树 -> 分配轨迹 -> 剪枝 -> 组件配置 -> 环境构建
-    env, quadtree = trainer.setup()
-
-    # 3. 执行相似度矩阵计算
-    print(f"\n💡 环境构建完成。有效单元格数量: {len(env.all_cells)}")
-    print("--- 开始计算相似度矩阵 ---")
-
-    sim_matrix = trainer.similarity_matrix
-    if sim_matrix is None:
-        from src.utils.similarity_matrix import SimilarityMatrix
-        sim_matrix = SimilarityMatrix(quadtree, trainer.cost_evaluator)
-
-    sim_matrix.compute(
-        env.all_cells,
-        use_symmetric=True,
-        show_progress=True,
-        num_workers=args.num_workers
-    )
-
-    # 4. 保存与统计
-    save_path = args.output_file or str(config.get_default_similarity_matrix_path())
-    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-    sim_matrix.save(save_path)
-
-    print("\n" + "╔" + "═" * 58 + "╗")
-    print("║" + " 相似度矩阵预计算完成统计 ".center(50) + "║")
-    print("╚" + "═" * 58 + "╝")
-
-    stats = sim_matrix.get_statistics()
-    print(f"  - 计算单元格总数: {stats.get('matrix_size', len(env.all_cells))}")
-    print(f"  - 平均相似度分数: {stats.get('mean_similarity', 0.0):.4f}")
-    print(f"  - 保存路径: {save_path}")
-    print("=" * 60)
+    stats = matrix.get_statistics()
+    print(f"matrix_size: {stats.get('matrix_size', len(all_cells))}")
+    print(f"mean_similarity: {stats.get('mean_similarity', 0.0):.4f}")
+    print(f"saved_to: {output_path}")
 
 
 if __name__ == "__main__":
