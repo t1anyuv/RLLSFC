@@ -32,6 +32,10 @@ ENV/
 # Resource directory (实验输出、查询数据、临时文件)
 resource/*
 !resource/README.md
+!resource/new-orders/
+!resource/new-orders/**
+!resource/queries_tdirve/
+!resource/queries_tdirve/**
 
 # Tests
 tests/
