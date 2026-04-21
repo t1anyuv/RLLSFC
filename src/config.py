@@ -32,7 +32,7 @@ def _default_dataset_profiles() -> Dict[str, "DatasetProfileConfig"]:
         "tdrive": DatasetProfileConfig(
             description="Beijing TDrive trajectory dataset",
             trajectory_path=r"D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt",
-            query_root="resource/queries",
+            query_root="resource/queries_tdirve",
             min_x=115.29,
             min_y=39.00,
             max_x=117.83,

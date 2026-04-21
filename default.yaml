@@ -14,7 +14,7 @@ datasets:
     tdrive:
       description: "Beijing TDrive dataset."
       trajectory_path: "D:/dataset/Trajectory/TDrive/complete_clean/tdrive.txt"  # Cleaned trajectory file.
-      query_root: "resource/queries"  # Query split root for this dataset.
+      query_root: "resource/queries_tdirve"  # Query split root for this dataset.
       min_x: 115.29  # Dataset bbox minimum longitude.
       min_y: 39.00   # Dataset bbox minimum latitude.
       max_x: 117.83  # Dataset bbox maximum longitude.

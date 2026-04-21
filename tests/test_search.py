@@ -1,68 +1,72 @@
-import unittest
 import os
+import tempfile
+import unittest
 
 from shapely.geometry import LineString, box
 
+from src.config import TShapeConfig
 from src.core.bounding_box import SpatialBoundingBox
 from src.data import load_cleaned_dataset
 from src.evaluation import TraversalPerformanceEvaluator
 from src.indexing.quadtree_index import QuadTreeIndex
 from src.indexing.traversal_encoder import TraversalOrderEncoder
 from src.reward.cost_evaluator import TraversalCostEvaluator
-from src.utils.signature import compute_traj_signature, compute_query_signature
+from src.rl.order_formatter import TrajectoryOrderFormatter
 from src.utils.path_manager import get_path_manager
+from src.utils.signature import compute_query_signature, compute_traj_signature
 
 
 class TestTShapeSearchCorrectness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # 1. 统一全局参数
         cls.bbox = SpatialBoundingBox(115.29, 39.00, 117.83, 41.50)
         cls.max_level = 8
         cls.alpha, cls.beta = 3, 3
 
-        # 2. 预加载 TDrive 真实数据
         print("Pre-loading TDrive data...")
         pm = get_path_manager()
-        tdrive_path = pm.tdrive_data_path or os.environ.get('TDRIVE_DATA_PATH',
-                                                            r'D:\Dataset\Trajectory\TDrive\complete_clean\tdrive.txt')
+        default_config = TShapeConfig.from_yaml(str(pm.project_root / "default.yaml"))
+        configured_tdrive_path = default_config.get_dataset_trajectory_path()
+        tdrive_path = (
+            os.environ.get("TDRIVE_DATA_PATH")
+            or (str(configured_tdrive_path) if configured_tdrive_path is not None else None)
+            or r"D:\Dataset\Trajectory\TDrive\complete_clean\tdrive.txt"
+        )
+        if not tdrive_path or not os.path.exists(tdrive_path):
+            raise unittest.SkipTest(f"TDrive dataset not found: {tdrive_path}")
+
         cls.raw_trajectories = load_cleaned_dataset(
             str(tdrive_path),
-            max_trajectories=None
+            max_trajectories=None,
         )
 
-        # 3. 定义统一的测试查询框
         cls.test_queries = [
-            # 1. 核心区域 (Core / Hotspot)
-            SpatialBoundingBox(116.3, 39.9, 116.4, 40.0),  # 稠密：天安门/王府井周边
-            SpatialBoundingBox(116.35, 39.95, 116.38, 39.98),  # 精细：局部小范围高频点
-
-            # 2. 边缘与稀疏区域 (Edge / Sparse)
-            SpatialBoundingBox(116.5, 39.5, 116.6, 39.6),  # 边缘：东南郊区
-            SpatialBoundingBox(115.8, 39.3, 116.0, 39.5),  # 极稀疏：西南偏远区域
-
-            # 3. 特殊几何形状 (Special Shapes)
-            # 长条形查询：模拟沿主要干道的水平/垂直搜索，极易触发大量的 Cell 相交判断
-            SpatialBoundingBox(116.0, 39.9, 116.5, 39.92),  # 水平长条（东西向长安街）
-            SpatialBoundingBox(116.3, 39.8, 116.32, 40.1),  # 垂直长条（南北向中轴线）
-
-            # 4. 边界/跨越情况 (Boundary Crossing)
-            # 刚好跨越四叉树 Level 1 或 Level 2 的分割线（通常在经纬度中心点附近）
-            SpatialBoundingBox(116.6, 39.9, 116.7, 40.1),  # 跨越经度大分界线
-
-            # 5. 极端尺度 (Scale Extremes)
-            # 极小范围：测试签名过滤的极高精度要求
+            SpatialBoundingBox(116.3, 39.9, 116.4, 40.0),
+            SpatialBoundingBox(116.35, 39.95, 116.38, 39.98),
+            SpatialBoundingBox(116.5, 39.5, 116.6, 39.6),
+            SpatialBoundingBox(115.8, 39.3, 116.0, 39.5),
+            SpatialBoundingBox(116.0, 39.9, 116.5, 39.92),
+            SpatialBoundingBox(116.3, 39.8, 116.32, 40.1),
+            SpatialBoundingBox(116.6, 39.9, 116.7, 40.1),
             SpatialBoundingBox(116.391, 39.901, 116.395, 39.905),
-            # 极大范围：测试剪枝后的节点收集性能
-            SpatialBoundingBox(116.1, 39.7, 116.6, 40.2)
+            SpatialBoundingBox(116.1, 39.7, 116.6, 40.2),
         ]
 
     def _init_new_index(self):
-        """辅助方法：初始化一个全新的索引并分配轨迹"""
         index = QuadTreeIndex(self.bbox, self.max_level, self.alpha, self.beta)
         for traj_id, points in self.raw_trajectories:
             index.assign_trajectory(traj_id, points)
         return index
+
+    @staticmethod
+    def _filter_actual_hits(index, candidate_ids, query_bbox: SpatialBoundingBox) -> set:
+        actual = set()
+        query_poly = box(query_bbox.min_x, query_bbox.min_y, query_bbox.max_x, query_bbox.max_y)
+        for tid in candidate_ids:
+            pts = index.trajectory_points.get(tid)
+            if pts and len(pts) >= 2 and LineString(pts).intersects(query_poly):
+                actual.add(tid)
+        return actual
 
     def brute_force_search(self, index, query_bbox: SpatialBoundingBox) -> set:
         hit_ids = set()
@@ -74,27 +78,14 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
                 hit_ids.add(tid)
         return hit_ids
 
-    def run_search_suite(self, index, mode_name):
-        """统一执行搜索测试套件"""
+    def run_search_suite(self, index, mode_name, search_runner):
         print(f"\n>>> Running Search Test Mode: {mode_name}")
-
-        encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
-        evaluator = TraversalPerformanceEvaluator(index, encoder, TraversalCostEvaluator(index))
-        z_order = encoder.z_curve_order()
 
         for i, q_bbox in enumerate(self.test_queries):
             expected = self.brute_force_search(index, q_bbox)
-            _, candidate_ids, _ = evaluator.search_quadcode_intervals(q_bbox, z_order, skip_muted=True)
+            _, candidate_ids, _ = search_runner(q_bbox)
+            actual = self._filter_actual_hits(index, candidate_ids, q_bbox)
 
-            # 精筛
-            actual = set()
-            query_poly = box(q_bbox.min_x, q_bbox.min_y, q_bbox.max_x, q_bbox.max_y)
-            for tid in candidate_ids:
-                pts = index.trajectory_points.get(tid)
-                if pts and LineString(pts).intersects(query_poly):
-                    actual.add(tid)
-
-            # 结果验证与深度分析
             if actual != expected:
                 missing = expected - actual
                 extra = actual - expected
@@ -108,47 +99,116 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
                     print(f"FAILED at Query {i} | True Missing: {len(true_missing)}, Extra: {len(extra)}")
                     self.analyze_trajectory(index, actual, expected, q_bbox)
 
-                    error_msg = f"[{mode_name}] Query {i} has mistakes！"
+                    error_msg = f"[{mode_name}] Query {i} has mistakes"
                     if true_missing:
                         error_msg += f" Missing TID: {list(true_missing)[:3]}..."
                     if extra:
                         error_msg += f" Extra TID: {list(extra)[:3]}..."
                     self.fail(error_msg)
                 else:
-                    print(f"  Query {i}: 忽略了 {len(missing)} 条点采样真空导致的漏检。")
+                    print(f"  Query {i}: 忽略 {len(missing)} 条点采样真空导致的漏检。")
 
         print(f"SUCCESS: {mode_name} all queries passed.")
 
-    # --- 测试用例 ---
-
     def test_01_no_pruning(self):
-        """情况 1：原始状态，不剪枝"""
         index = self._init_new_index()
-        self.run_search_suite(index, "NO_PRUNING")
+        encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
+        evaluator = TraversalPerformanceEvaluator(index, encoder, TraversalCostEvaluator(index))
+        z_order = encoder.z_curve_order()
+        self.run_search_suite(
+            index,
+            "NO_PRUNING",
+            lambda q_bbox: evaluator.search_quadcode_intervals(q_bbox, z_order, skip_muted=True),
+        )
 
     def test_02_pruning_no_optimize(self):
-        """情况 2：剪枝（轨迹上移重算签名），但不优化参数 (alpha/beta 保持 3,3)"""
         index = self._init_new_index()
-
         index.post_prune_tree(min_cell_trajs=4)
         index.compute_signatures(enable_optimize=False)
 
-        self.run_search_suite(index, "PRUNING_NO_OPTIMIZE")
+        encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
+        evaluator = TraversalPerformanceEvaluator(index, encoder, TraversalCostEvaluator(index))
+        z_order = encoder.z_curve_order()
+        self.run_search_suite(
+            index,
+            "PRUNING_NO_OPTIMIZE",
+            lambda q_bbox: evaluator.search_quadcode_intervals(q_bbox, z_order, skip_muted=True),
+        )
 
     def test_03_pruning_with_optimize(self):
-        """情况 3：剪枝 + 自适应参数优化 (alpha/beta 动态变化)"""
         index = self._init_new_index()
-
-        # 开启 enable_optimize
         index.post_prune_tree(min_cell_trajs=4)
         index.compute_signatures(enable_optimize=True)
 
-        self.run_search_suite(index, "PRUNING_WITH_OPTIMIZE")
+        encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
+        evaluator = TraversalPerformanceEvaluator(index, encoder, TraversalCostEvaluator(index))
+        z_order = encoder.z_curve_order()
+        self.run_search_suite(
+            index,
+            "PRUNING_WITH_OPTIMIZE",
+            lambda q_bbox: evaluator.search_quadcode_intervals(q_bbox, z_order, skip_muted=True),
+        )
 
-    # --- 调试辅助方法 ---
+    def test_04_loaded_xz_order_uses_effective_subtree_count_for_cover_intervals(self):
+        index = self._init_new_index()
+        index.post_prune_tree(min_cell_trajs=4)
+        index.compute_signatures(enable_optimize=True)
+
+        baseline_encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
+        baseline_evaluator = TraversalPerformanceEvaluator(
+            index,
+            baseline_encoder,
+            TraversalCostEvaluator(index),
+        )
+        baseline_order = baseline_encoder.z_curve_order()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            formatter = TrajectoryOrderFormatter(output_dir=temp_dir)
+            _, order_path = formatter.generate_config_file_from_order(
+                order=baseline_order,
+                quadtree=index,
+                filename="xz_order.json",
+                global_alpha=self.alpha,
+                global_beta=self.beta,
+                order_source="pruned_default_xz_order",
+            )
+
+            loaded_encoder = TraversalOrderEncoder(index, self.alpha, self.beta)
+            loaded_encoder.load_quadorder_mapping(order_path)
+            loaded_order = loaded_encoder.quadorder()
+            self.assertIsNotNone(loaded_order)
+
+            loaded_evaluator = TraversalPerformanceEvaluator(
+                index,
+                loaded_encoder,
+                TraversalCostEvaluator(index),
+            )
+
+            def search_runner(q_bbox):
+                baseline_intervals, _, _ = baseline_evaluator.search_quadorder_intervals(
+                    q_bbox,
+                    baseline_order,
+                    skip_muted=True,
+                )
+                loaded_intervals, candidate_ids, gap_bits = loaded_evaluator.search_quadorder_intervals(
+                    q_bbox,
+                    loaded_order,
+                    skip_muted=True,
+                )
+                self.assertEqual(
+                    baseline_intervals,
+                    loaded_intervals,
+                    f"Loaded XZ order intervals should match baseline for query {q_bbox}",
+                )
+                return loaded_intervals, candidate_ids, gap_bits
+
+            self.run_search_suite(
+                index,
+                "LOADED_XZ_ORDER_WITH_COVERAGE",
+                search_runner,
+            )
+
     def analyze_trajectory(self, index, actual_ids, expected_ids, q_bbox):
-        """分析漏检原因"""
-
         missing = expected_ids - actual_ids
         if not missing:
             print("\n[INFO] 无漏检轨迹。")
@@ -161,9 +221,7 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
 
         print("\n" + "=" * 60)
         print(f"DEBUG INFO | TID: {error_tid} | Cell: {assigned_cell.code if assigned_cell else 'None'}")
-
         print(f"\n[漏检数量]: {len(missing)}")
-
         print(f"\n[几何范围]")
         print(f"  Query BBox: {q_bbox}")
         print(f"  Traj  MBR:  {traj_mbr}")
@@ -184,16 +242,13 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
                     segment_intersects = True
                     print(f"  发现穿透线段: Pt[{i}]({p1}) -> Pt[{i + 1}]({p2})")
                     if not q_bbox.contains_point(*p1) and not q_bbox.contains_point(*p2):
-                        print(f"  >> 判定: 线段穿透! (端点均在框外，但连线穿过查询区域)")
+                        print("  >> 判定: 线段穿透 (端点均在框外，但连线穿过查询区域)")
                     break
 
         if assigned_cell:
             g_alpha, g_beta = index.alpha, index.beta
             l_alpha, l_beta = assigned_cell.alpha, assigned_cell.beta
-
-            # 获取存储签名
             stored_sig = assigned_cell.signatures.get(error_tid)
-            # 重算
             recalc_sig = compute_traj_signature(g_alpha, g_beta, assigned_cell, traj_points)
             query_sig = compute_query_signature(g_alpha, g_beta, assigned_cell, q_bbox)
 
@@ -206,18 +261,16 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
 
         print(f"\n[定性分析]")
         if segment_intersects and in_query_count == 0:
-            print(">> 漏检确认：点采样真空。TShape 签名仅基于点计算位图，由于此轨迹点都在查询框外，")
-            print("   签名位图无法捕捉到穿透的线段。")
+            print(">> 漏检确认: 点采样真空。TShape 签名仅基于点计算位图，无法捕捉穿透线段。")
         elif not segment_intersects:
-            print(">> 漏检确认：逻辑异常。线段并未与查询框相交，但暴力搜索判定为相交，请检查暴力搜索逻辑。")
+            print(">> 漏检确认: 逻辑异常。线段并未与查询框相交，但暴力搜索判定为相交，请检查暴力搜索逻辑。")
         else:
-            print(">> 漏检确认：其他逻辑错误（如 EE BBox 范围不足、签名映射算法不一致等）。")
+            print(">> 漏检确认: 其他逻辑错误（如 EE BBox 不足、签名映射不一致等）。")
 
         self.trace_missing_path(index, error_tid, q_bbox)
         print("=" * 60 + "\n")
 
     def trace_missing_path(self, index, tid, q_bbox):
-        """追踪路径，显式传入 index"""
         cell = index.trajectory_to_cells.get(tid)
         path = []
         curr = cell
@@ -226,13 +279,12 @@ class TestTShapeSearchCorrectness(unittest.TestCase):
             curr = curr.parent
         path.reverse()
 
-        print(f"\n[Search Path Trace]:")
+        print("\n[Search Path Trace]:")
         for node in path:
-            # 必须使用 index 自身的 alpha/beta 定位 EE
             ee = node.get_enlarged_element_bbox(index.alpha, index.beta)
             intersects = q_bbox.intersects(ee)
             print(f"  L{node.level} [{node.code}] | Muted: {node.muted} | Intersects EE: {intersects}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

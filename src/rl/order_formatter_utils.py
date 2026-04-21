@@ -77,7 +77,7 @@ def build_parent_descriptor(cell: QuadTreeCell, max_level: int) -> Dict[str, Any
         "alpha": int(cell.alpha),
         "beta": int(cell.beta),
         "level": int(cell.level),
-        "elementCode": int(cell.get_quadrant_code(max_level)),
+        "element_code": int(cell.get_quadrant_code(max_level)),
         "xmin": float(cell.bbox.min_x),
         "ymin": float(cell.bbox.min_y),
         "xmax": float(cell.bbox.max_x),
@@ -121,7 +121,7 @@ def assemble_ordering(qc_to_info: Dict, max_level: int) -> List[Dict]:
         combined_codes = [info["active_qc"]] + sorted(list(info["muted_set"]))
 
         ordering.append({
-            "quad_code": combined_codes,
+            "quad_code": combined_codes[0],
             "order": info["order"],
             "parent": build_parent_descriptor(cell, max_level)
         })

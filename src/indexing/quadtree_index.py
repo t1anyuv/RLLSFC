@@ -118,9 +118,12 @@ class QuadTreeIndex:
             return self.root
 
         # 计算在指定层级的网格坐标索引
+        # 使用 floor + epsilon 避免浮点精度问题
+        import math
         num_cells = 1 << level
-        x_idx = int((x - self.bbox.min_x) / self.width * num_cells)
-        y_idx = int((y - self.bbox.min_y) / self.height * num_cells)
+        eps = self.GEOMETRY_EPSILON
+        x_idx = int(math.floor((x - self.bbox.min_x + eps) / self.width * num_cells))
+        y_idx = int(math.floor((y - self.bbox.min_y + eps) / self.height * num_cells))
 
         # 处理坐标恰好等于 max_x/max_y 的情况
         x_idx = min(x_idx, num_cells - 1)
@@ -355,6 +358,13 @@ class QuadTreeIndex:
 
         if cell:
             ee_bbox = cell.get_enlarged_element_bbox(self.alpha, self.beta)
+            if not ee_bbox.contains(traj_bbox):
+                print(f"[DEBUG] Traj {traj_id} EE containment failed:")
+                print(f"  traj_bbox: ({traj_bbox.min_x}, {traj_bbox.min_y}) - ({traj_bbox.max_x}, {traj_bbox.max_y})")
+                print(f"  cell_bbox: ({cell.bbox.min_x}, {cell.bbox.min_y}) - ({cell.bbox.max_x}, {cell.bbox.max_y})")
+                print(f"  ee_bbox: ({ee_bbox.min_x}, {ee_bbox.min_y}) - ({ee_bbox.max_x}, {ee_bbox.max_y})")
+                print(f"  alpha={self.alpha}, beta={self.beta}, target_lvl={target_lvl}")
+                print(f"  global: ({self.bbox.min_x}, {self.bbox.min_y}) - ({self.bbox.max_x}, {self.bbox.max_y})")
             assert ee_bbox.contains(traj_bbox), f"EE 包含性验证失败: Traj {traj_id}"
 
             cell.trajectories.add(traj_id)

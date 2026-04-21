@@ -20,7 +20,7 @@ def build_partition_lookup(partitions_payload: Dict) -> Dict[int, Tuple[int, int
     lookup: Dict[int, Tuple[int, int]] = {}
     for item in partitions_payload.get("partitions", []):
         parent = item.get("parent", {})
-        element_code = parent.get("elementCode")
+        element_code = parent.get("element_code", parent.get("elementCode"))
         alpha = parent.get("alpha")
         beta = parent.get("beta")
         if element_code is None or alpha is None or beta is None:
@@ -33,7 +33,7 @@ def merge_payloads(order_payload: Dict, partitions_payload: Dict) -> Dict:
     partition_lookup = build_partition_lookup(partitions_payload)
     for item in order_payload.get("ordering", []):
         parent = item.get("parent", {})
-        element_code = parent.get("elementCode")
+        element_code = parent.get("element_code", parent.get("elementCode"))
         if element_code is None:
             continue
         alpha_beta = partition_lookup.get(int(element_code))

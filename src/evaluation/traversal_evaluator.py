@@ -108,6 +108,14 @@ class TraversalPerformanceEvaluator:
 
         return lookup
 
+    def _can_use_xz_coverage_intervals(self) -> bool:
+        loader = self.encoder.get_order_loader()
+        if loader is None or not loader.is_loaded():
+            return False
+        order_source = loader.get_order_source()
+        contiguous = loader.get_effective_subtree_contiguous()
+        return order_source is not None and "xz" in order_source.lower() and contiguous is True
+
     def search_quadcode_intervals(
         self,
         query_bbox: SpatialBoundingBox,
@@ -171,6 +179,8 @@ class TraversalPerformanceEvaluator:
         aligned: Optional[TraversalOrderLookup] = None,
     ) -> Tuple[List[Tuple[int, int]], Set[int], int]:
         order_lookup = aligned or self._build_order_lookup(traversal_order)
+        can_use_xz_coverage = self._can_use_xz_coverage_intervals()
+        order_loader = self.encoder.get_order_loader() if can_use_xz_coverage else None
         row_intervals: List[Tuple[int, int]] = []
         candidate_traj_ids: Set[int] = set()
         current_level_cells = {self.quadtree.root}
@@ -186,18 +196,34 @@ class TraversalPerformanceEvaluator:
                 enlarged_bbox = cell.get_enlarged_element_bbox(self.alpha, self.beta)
 
                 if query_bbox.contains(enlarged_bbox):
-                    stack = [cell]
-                    while stack:
-                        sub_cell = stack.pop()
-                        if not (skip_muted and sub_cell.muted):
-                            order_value = order_lookup.get(sub_cell)
-                            if order_value is not None:
-                                contained_orders.append(int(order_value))
-                            candidate_traj_ids.update(sub_cell.trajectories)
-                        if sub_cell.level < self.quadtree.max_level:
-                            for child in sub_cell.children:
-                                if child is not None:
-                                    stack.append(child)
+                    used_fast_interval = False
+                    if can_use_xz_coverage and order_loader is not None:
+                        order_value = order_lookup.get(cell)
+                        coverage = order_loader.get_coverage_by_cell(cell)
+                        subtree_count = None if coverage is None else coverage.get("effective_subtree_count")
+                        if order_value is not None and isinstance(subtree_count, int):
+                            row_intervals.append((int(order_value), int(order_value) + int(subtree_count) + 1))
+                            self._collect_subtree_trajectories(
+                                quadtree=self.quadtree,
+                                cell=cell,
+                                candidate_traj_ids=candidate_traj_ids,
+                                skip_muted=skip_muted,
+                            )
+                            used_fast_interval = True
+
+                    if not used_fast_interval:
+                        stack = [cell]
+                        while stack:
+                            sub_cell = stack.pop()
+                            if not (skip_muted and sub_cell.muted):
+                                order_value = order_lookup.get(sub_cell)
+                                if order_value is not None:
+                                    contained_orders.append(int(order_value))
+                                candidate_traj_ids.update(sub_cell.trajectories)
+                            if sub_cell.level < self.quadtree.max_level:
+                                for child in sub_cell.children:
+                                    if child is not None:
+                                        stack.append(child)
                 elif query_bbox.intersects(enlarged_bbox):
                     query_sig = compute_query_signature(self.alpha, self.beta, cell, query_bbox)
                     if not cell.signatures:

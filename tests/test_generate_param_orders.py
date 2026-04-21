@@ -24,10 +24,35 @@ def test_build_run_config_uses_experiment_private_similarity_matrix():
     )
 
     assert run_config.data.similarity_matrix_path is not None
-    assert "resource/experiments/skewed_resolution_res9_min2/similarity/" in (
+    assert "resource/experiments/skewed_r9_min2_a3_b3/similarity/" in (
         run_config.data.similarity_matrix_path.replace("\\", "/")
     )
-    assert run_config.data.similarity_matrix_path.endswith("sim_mtx_L9_A3_B3_T-1.npz")
+    assert run_config.data.similarity_matrix_path.endswith("sim_mtx_tdrive_L9_A3_B3_T-1.npz")
+
+
+def test_build_run_config_overrides_alpha_beta():
+    base_config = TShapeConfig(
+        index=IndexConfig(max_level=8, alpha=3, beta=3, min_cell_trajs=4),
+        data=DataConfig(
+            num_trajectories=-1,
+            similarity_matrix_path="sim_mtx_L8_A3_B3_T-1.npz",
+        ),
+    )
+
+    run_config = build_run_config(
+        base_config=base_config,
+        distribution="skewed",
+        resolution=8,
+        min_trajs=4,
+        sweep_type="grid",
+        alpha=2,
+        beta=2,
+    )
+
+    assert run_config.index.alpha == 2
+    assert run_config.index.beta == 2
+    assert run_config.experiment.name == "skewed_r8_min4_a2_b2"
+    assert run_config.data.similarity_matrix_path.endswith("sim_mtx_tdrive_L8_A2_B2_T-1.npz")
 
 
 def test_get_existing_case_record_skips_completed_case():
@@ -46,7 +71,7 @@ def test_get_existing_case_record_skips_completed_case():
             min_trajs=4,
             sweep_type="resolution",
         )
-        export_prefix = "quadorder_skewed_resolution_res8_min4"
+        export_prefix = "skewed_r8_min4_a3_b3"
         orders_dir = run_config.experiment.get_orders_dir()
         models_dir = run_config.experiment.get_models_dir()
         logs_dir = run_config.experiment.get_logs_dir()
@@ -64,6 +89,7 @@ def test_get_existing_case_record_skips_completed_case():
             resolution=8,
             min_trajs=4,
             sweep_type="resolution",
+            order_mode="rl",
         )
 
         assert record is not None

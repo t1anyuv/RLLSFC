@@ -50,6 +50,10 @@ class TraversalOrderEncoder:
         else:
             raise ValueError(f"不支持的文件格式: {filepath.suffix}，请使用 .json")
 
+    def get_order_loader(self) -> Optional[LSFCMappingLoader]:
+        """返回当前已加载的顺序映射加载器。"""
+        return self._order_loader
+
     def quadorder(self, include_muted: bool = False) -> Optional[List[QuadTreeCell]]:
         """根据加载的学习顺序映射，返回排序后的单元格列表"""
         if self._order_loader is None or not self._order_loader.is_loaded():

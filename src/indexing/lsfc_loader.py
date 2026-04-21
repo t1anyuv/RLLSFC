@@ -18,7 +18,9 @@ class LSFCMappingLoader:
         self.logger = logging.getLogger(__name__)
         self._tuple_to_order: Dict[Tuple[int, Tuple[int, ...]], int] = {}
         self._quad_code_to_order: Dict[int, int] = {}
+        self._quad_code_to_coverage: Dict[int, Dict[str, Union[int, bool, List[int]]]] = {}
         self._max_level: Optional[int] = None
+        self._metadata: Dict[str, Union[int, float, str, bool]] = {}
         self._loaded = False
 
     def load_from_json(self, filepath: Union[str, Path]) -> None:
@@ -45,11 +47,13 @@ class LSFCMappingLoader:
         # 从 metadata 获取 max_level
         if 'metadata' in data and 'quadtree_max_level' in data['metadata']:
             self._max_level = data['metadata']['quadtree_max_level']
+            self._metadata = dict(data['metadata'])
         else:
             raise ValueError("JSON文件格式错误：缺少 metadata.quadtree_max_level 字段")
 
         self._tuple_to_order.clear()
         self._quad_code_to_order.clear()
+        self._quad_code_to_coverage.clear()
 
         # 处理 ordering 数据
         for item in data['ordering']:
@@ -59,6 +63,7 @@ class LSFCMappingLoader:
 
             order = item['order']
             quad_codes = item['quad_code']
+            coverage = item.get('coverage') or {}
 
             # 兼容处理：如果 quad_code 是单个数值则转为列表
             if isinstance(quad_codes, (int, float)):
@@ -73,6 +78,8 @@ class LSFCMappingLoader:
 
                     self._tuple_to_order[key] = order
                     self._quad_code_to_order[q_code] = order
+                    if coverage:
+                        self._quad_code_to_coverage[q_code] = coverage
                 except ValueError as e:
                     self.logger.warning(f"解码失败 quad_code={q_code}: {e}")
                     continue
@@ -238,6 +245,27 @@ class LSFCMappingLoader:
     def is_loaded(self) -> bool:
         """检查是否已加载映射。"""
         return self._loaded
+
+    def get_metadata(self) -> Dict[str, Union[int, float, str, bool]]:
+        """返回已加载顺序文件中的 metadata。"""
+        return dict(self._metadata)
+
+    def get_order_source(self) -> Optional[str]:
+        """返回顺序文件来源标记。"""
+        value = self._metadata.get("order_source")
+        return str(value) if value is not None else None
+
+    def get_coverage_by_cell(self, cell: QuadTreeCell) -> Optional[Dict[str, Union[int, bool, List[int]]]]:
+        """获取单元格关联的 coverage 信息。"""
+        q_code = cell.get_quadrant_code(self._max_level) if self._max_level is not None else None
+        if q_code is None:
+            return None
+        coverage = self._quad_code_to_coverage.get(q_code)
+        return dict(coverage) if coverage is not None else None
+
+    def get_effective_subtree_contiguous(self) -> Optional[bool]:
+        value = self._metadata.get("effective_subtree_contiguous")
+        return value if isinstance(value, bool) else None
 
     def get_statistics(self) -> Dict[str, Union[int, float]]:
         """获取映射统计信息"""

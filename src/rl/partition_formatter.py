@@ -19,7 +19,7 @@ def _build_parent_descriptor(cell: QuadTreeCell, max_level: int) -> Dict[str, An
         "alpha": int(cell.alpha),
         "beta": int(cell.beta),
         "level": int(cell.level),
-        "elementCode": int(cell.get_quadrant_code(max_level)),
+        "element_code": int(cell.get_quadrant_code(max_level)),
         "xmin": float(cell.bbox.min_x),
         "ymin": float(cell.bbox.min_y),
         "xmax": float(cell.bbox.max_x),
@@ -53,7 +53,7 @@ class AdaptivePartitionFormatter:
 
         return [
             {
-                "quad_code": [int(cell.get_quadrant_code(max_level))],
+                "quad_code": int(cell.get_quadrant_code(max_level)),
                 "parent": _build_parent_descriptor(cell, max_level),
             }
             for cell in active_cells

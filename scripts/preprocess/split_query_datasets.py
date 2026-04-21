@@ -1,8 +1,8 @@
 """
 查询数据集划分脚本。
 
-将 resource/queries/ 下的原始查询文件划分为训练集、验证集和测试集，
-保存到 resource/queries/<category>/ 目录下。
+将查询文件划分为训练集、验证集和测试集，
+保存到指定输出目录的 <category>/ 目录下。
 
 用法:
     python scripts/split_query_datasets.py --categories gus ske uni --train-ratio 0.6 --val-ratio 0.2
@@ -137,9 +137,9 @@ def main():
                         help='验证集比例 (默认: 0.2)')
     parser.add_argument('--seed', type=int, default=42,
                         help='随机种子 (默认: 42)')
-    parser.add_argument('--queries-dir', type=str, default='resource/queries',
+    parser.add_argument('--queries-dir', type=str, default='resource/queries_tdirve',
                         help='查询文件目录')
-    parser.add_argument('--output-dir', type=str, default='resource/queries',
+    parser.add_argument('--output-dir', type=str, default='resource/queries_tdirve',
                         help='输出目录')
 
     args = parser.parse_args()
