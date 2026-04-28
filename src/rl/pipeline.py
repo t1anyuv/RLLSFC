@@ -17,17 +17,15 @@ class LSFCPipeLine:
         config: TShapeConfig,
         network_config: NetworkConfig,
         logger: Optional[logging.Logger] = None,
-        resource_base_dir: Optional[str] = None,
         custom_paths: Optional[Dict[str, str]] = None,
     ):
-        del resource_base_dir
         self.config = config
         self.network_config = network_config
         self.logger = logger or logging.getLogger("RLPipeline")
         self.resource_paths = {
-            "models": self.config.experiment.get_models_dir(),
-            "orders": self.config.experiment.get_orders_dir(),
-            "logs": self.config.experiment.get_logs_dir(),
+            "checkpoints": self.config.experiment.get_checkpoints_dir(self.config.paths),
+            "results": self.config.experiment.get_results_dir(self.config.paths),
+            "logs": self.config.experiment.get_logs_dir(self.config.paths),
         }
         if custom_paths:
             for key, val in custom_paths.items():
@@ -47,7 +45,7 @@ class LSFCPipeLine:
         self.trainer.prepare_agent()
         self.postprocessor = LSFCEvaluator(
             config=self.config,
-            output_dir=str(self.resource_paths["orders"]),
+            output_dir=str(self.resource_paths["results"]),
         )
         self.logger.info("Pipeline ready with %s active cells.", self.trainer.environment.num_cells)
 
@@ -58,14 +56,14 @@ class LSFCPipeLine:
         self.logger.info("Starting RL training...")
         self.trainer.train()
 
-        latest_model_path = self.config.experiment.get_models_dir() / "latest.pth"
+        latest_model_path = self.config.experiment.get_checkpoints_dir(self.config.paths) / "latest.pth"
         if latest_model_path.exists():
             model_path = latest_model_path
         else:
-            best_record_path = self.config.experiment.get_orders_dir() / "best_model_record.json"
+            best_record_path = self.config.experiment.get_results_dir(self.config.paths) / "best_model_record.json"
             if not best_record_path.exists():
                 raise FileNotFoundError(
-                    "Training finished but neither latest.pth nor orders/best_model_record.json was produced."
+                    "Training finished but neither checkpoints/latest.pth nor results/best_model_record.json was produced."
                 )
             with open(best_record_path, "r", encoding="utf-8") as f:
                 best_record = json.load(f)
@@ -104,7 +102,7 @@ class LSFCPipeLine:
         return self.postprocessor.export_formats(self.trainer, base_prefix=export_prefix)
 
     def _resolve_model_for_export(self, trained_model_path: str) -> str:
-        best_record_path = self.config.experiment.get_orders_dir() / "best_model_record.json"
+        best_record_path = self.config.experiment.get_results_dir(self.config.paths) / "best_model_record.json"
         if best_record_path.exists():
             with open(best_record_path, "r", encoding="utf-8") as f:
                 best_record = json.load(f)

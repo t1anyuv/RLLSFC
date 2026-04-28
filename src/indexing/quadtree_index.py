@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_cell import QuadTreeCell
 from src.indexing.quadtree_validator import QuadTreeValidator
 from src.indexing.signature_processor import SignatureProcessor

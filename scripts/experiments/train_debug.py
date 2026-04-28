@@ -1,7 +1,7 @@
 ﻿"""
 使用少量episode对TraversalEnvironment与策略网络进行调试，展示关键中间结果
 运行方式：
-    python -m scripts.experiments.train_debug --config resource/experiments/debug/config.yaml
+    python -m scripts.experiments.train_debug --config configs/experiments/debug/config.yaml
 """
 import argparse
 import json
@@ -339,7 +339,8 @@ def main() -> None:
         verbose_logging=True,
     )
 
-    log_dir = config.experiment.get_logs_dir()
+    log_dir = config.experiment.get_logs_dir(config.paths)
+    log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = log_dir / f"debug_log_{timestamp}.json"
     with open(log_path, "w", encoding="utf-8") as f:

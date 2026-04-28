@@ -23,31 +23,45 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 import json
+import os
 import torch
 import yaml
 
 
 def _default_dataset_profiles() -> Dict[str, "DatasetProfileConfig"]:
+    # 从环境变量获取数据集路径，或使用 None 作为默认值
+    tdrive_path = os.environ.get("DATASET_TDRIVE_PATH")
+    chengdu_path = os.environ.get("DATASET_CHENGDU_PATH")
+
     return {
         "tdrive": DatasetProfileConfig(
             description="Beijing TDrive trajectory dataset",
-            trajectory_path=r"D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt",
-            query_root="resource/queries_tdirve",
+            trajectory_path=tdrive_path,
+            query_root="resource/queries/tdrive",
             min_x=115.29,
             min_y=39.00,
             max_x=117.83,
             max_y=41.50,
         ),
-        "cdtaxi": DatasetProfileConfig(
+        "chengdu": DatasetProfileConfig(
             description="Chengdu CDTaxi trajectory dataset",
-            trajectory_path=r"D:\dataset\Trajectory\Chengdu\cleaned_cd_taxi.txt",
-            query_root="resource/queries_chengdu",
+            trajectory_path=chengdu_path,
+            query_root="resource/queries/chengdu",
             min_x=104.04,
             min_y=30.65,
             max_x=104.13,
             max_y=30.73,
         ),
     }
+
+
+def _dataset_env_var(dataset_name: str) -> Optional[str]:
+    env_map = {
+        "tdrive": "DATASET_TDRIVE_PATH",
+        "chengdu": "DATASET_CHENGDU_PATH",
+        "cdtaxi": "DATASET_CHENGDU_PATH",
+    }
+    return env_map.get(dataset_name)
 
 
 @dataclass
@@ -61,29 +75,31 @@ class ExperimentConfig:
     name: str = "default"
     description: str = ""
 
-    def get_output_dir(self) -> Path:
-        """获取实验输出目录：resource/experiments/{name}/"""
-        return Path("resource/experiments") / self.name
-    
-    def get_models_dir(self) -> Path:
-        """获取模型输出目录"""
-        return self.get_output_dir() / "models"
-    
-    def get_orders_dir(self) -> Path:
-        """获取顺序输出目录"""
-        return self.get_output_dir() / "orders"
-    
-    def get_logs_dir(self) -> Path:
-        """获取日志输出目录"""
-        return self.get_output_dir() / "logs"
-    
-    def get_curves_dir(self) -> Path:
-        """获取曲线图输出目录"""
-        return self.get_output_dir() / "curves"
+    def get_output_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """获取实验输出目录：outputs/experiments/{name}/"""
+        if paths is None:
+            return Path("outputs/experiments") / self.name
+        return paths.get_experiment_dir(self.name)
 
-    def get_similarity_dir(self) -> Path:
-        """获取实验私有相似度矩阵目录"""
-        return self.get_output_dir() / "similarity"
+    def get_checkpoints_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """获取模型检查点目录"""
+        return self.get_output_dir(paths) / "checkpoints"
+
+    def get_results_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """获取实验结果目录（顺序、评估等）"""
+        return self.get_output_dir(paths) / "results"
+
+    def get_logs_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """获取实验日志目录"""
+        return self.get_output_dir(paths) / "logs"
+
+    def get_figures_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """获取实验图表目录"""
+        return self.get_output_dir(paths) / "figures"
+
+    def get_similarity_dir(self, paths: Optional["PathConfig"] = None) -> Path:
+        """实验私有相似度矩阵目录。"""
+        return self.get_output_dir(paths) / "similarity"
 
 
 @dataclass
@@ -91,59 +107,98 @@ class PathConfig:
     """路径配置
     
     Attributes:
-        resource_base_dir: 资源文件基础目录（支持相对路径和绝对路径）
+        outputs_dir: 输出文件基础目录（支持相对路径和绝对路径）
+        resource_dir: 资源文件基础目录
         
     注意：
         - 相对路径将相对于项目根目录解析
         - 可以通过环境变量覆盖：
           * PROJECT_ROOT: 项目根目录
-          * RESOURCE_BASE_DIR: 资源基础目录
+          * OUTPUT_DIR: 输出基础目录
     """
-    resource_base_dir: str = 'resource'
+    outputs_dir: str = "outputs"
+    resource_dir: str = "resource"
 
-    def _get_path_manager(self):
-        """获取路径管理器实例"""
-        from src.utils.path_manager import get_path_manager
-        return get_path_manager()
-
-    @property
-    def model_dir(self) -> Path:
-        """模型保存目录"""
-        pm = self._get_path_manager()
-        if pm:
-            return pm.get_model_dir()
-        return Path(self.resource_base_dir) / "models"
+    def _resolve_path(self, path: str) -> Path:
+        """解析路径，支持相对和绝对路径"""
+        candidate = Path(path)
+        if candidate.is_absolute():
+            return candidate
+        # 从项目根目录解析
+        return self.project_root / candidate
 
     @property
-    def order_dir(self) -> Path:
-        """遍历顺序保存目录"""
-        pm = self._get_path_manager()
-        if pm:
-            return pm.get_order_dir()
-        return Path(self.resource_base_dir) / "orders"
+    def project_root(self) -> Path:
+        """获取项目根目录"""
+        env_root = os.environ.get("PROJECT_ROOT")
+        if env_root:
+            return Path(env_root).resolve()
+        # 从当前文件位置向上查找
+        current = Path(__file__).resolve()
+        for parent in [current] + list(current.parents):
+            if (parent / "src").is_dir() and (parent / "configs").is_dir():
+                return parent
+        return Path.cwd()
+
+    @property
+    def outputs_path(self) -> Path:
+        """输出目录根路径"""
+        env_outputs = os.environ.get("OUTPUT_DIR")
+        if env_outputs:
+            return Path(env_outputs)
+        return self._resolve_path(self.outputs_dir)
+
+    @property
+    def resource_path(self) -> Path:
+        """资源目录根路径"""
+        env_resource = os.environ.get("RESOURCE_BASE_DIR")
+        if env_resource:
+            return Path(env_resource)
+        return self._resolve_path(self.resource_dir)
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        """模型检查点保存目录"""
+        return self.outputs_path / "checkpoints"
+
+    @property
+    def logs_dir(self) -> Path:
+        """日志保存目录"""
+        return self.outputs_path / "logs"
+
+    @property
+    def figures_dir(self) -> Path:
+        """图表保存目录"""
+        return self.outputs_path / "figures"
+
+    @property
+    def experiments_dir(self) -> Path:
+        """实验输出目录"""
+        return self.outputs_path / "experiments"
+
+    @property
+    def queries_dir(self) -> Path:
+        """查询文件目录"""
+        return self.resource_path / "queries"
+
+    @property
+    def matrices_dir(self) -> Path:
+        """矩阵数据目录"""
+        return self.resource_path / "matrices"
 
     @property
     def similarity_dir(self) -> Path:
-        """相似度矩阵保存目录"""
-        pm = self._get_path_manager()
-        if pm:
-            return pm.get_similarity_dir()
-        return Path(self.resource_base_dir) / "similarity"
+        """共享相似度矩阵目录。"""
+        return self.matrices_dir / "similarity"
 
     @property
-    def log_dir(self) -> Path:
-        """日志保存目录"""
-        pm = self._get_path_manager()
-        if pm:
-            return pm.get_log_dir()
-        return Path(self.resource_base_dir) / "logs"
+    def orders_dir(self) -> Path:
+        """遍历顺序目录"""
+        return self.resource_path / "orders"
 
-    def apply_to_path_manager(self):
-        """将配置应用到全局路径管理器"""
-        pm = self._get_path_manager()
-        if pm:
-            if self.resource_base_dir:
-                pm.set_resource_base(self.resource_base_dir)
+    def get_experiment_dir(self, experiment_name: str) -> Path:
+        """获取指定实验的输出目录"""
+        return self.experiments_dir / experiment_name
 
 
 @dataclass
@@ -228,7 +283,7 @@ class DataConfig:
         num_trajectories: 加载的轨迹数量，-1表示加载全部
         source: 轨迹来源，'dataset' 使用当前激活数据集，'synthetic' 使用合成数据
         use_similarity_matrix: 是否使用预计算的相似度矩阵
-        similarity_matrix_path: 相似度矩阵文件路径（相对于resource/shared/similarity/）
+        similarity_matrix_path: 相似度矩阵文件路径（相对于resource/matrices/similarity/）
         similarity_num_workers: 计算相似度矩阵时的工作进程数（None表示使用CPU核心数）
         similarity_use_gpu: 是否使用GPU加速相似度矩阵计算
         similarity_gpu_batch_size: GPU计算批大小
@@ -260,13 +315,14 @@ class DataConfig:
     storage_dir: Optional[str] = None
     disk_cache_mb: int = 2048
     
-    def get_similarity_matrix_path(self) -> Optional[Path]:
+    def get_similarity_matrix_path(self, paths: "PathConfig") -> Optional[Path]:
         """获取相似度矩阵完整路径"""
         if not self.similarity_matrix_path:
             return None
-        from src.utils.path_manager import get_path_manager
-
-        return get_path_manager().get_similarity_matrix_path(self.similarity_matrix_path)
+        path = Path(self.similarity_matrix_path)
+        if path.is_absolute():
+            return path
+        return paths.similarity_dir / self.similarity_matrix_path
 
 
 @dataclass
@@ -468,7 +524,18 @@ class TShapeConfig:
         if 'paths' in data:
             config_dict['paths'] = PathConfig(**data['paths'])
 
-        return cls(**config_dict)
+        config = cls(**config_dict)
+
+        # If a YAML config defines dataset profiles but leaves trajectory_path empty,
+        # allow environment variables to provide the concrete local dataset path.
+        for dataset_name, profile in config.datasets.profiles.items():
+            if profile.trajectory_path:
+                continue
+            env_name = _dataset_env_var(dataset_name)
+            if env_name:
+                profile.trajectory_path = os.environ.get(env_name)
+
+        return config
 
     @classmethod
     def from_yaml(cls, path: str) -> 'TShapeConfig':
@@ -550,10 +617,7 @@ class TShapeConfig:
         candidate = Path(path)
         if candidate.is_absolute():
             return candidate
-
-        from src.utils.path_manager import get_path_manager
-
-        return (get_path_manager().project_root / candidate).resolve()
+        return (Path.cwd() / candidate).resolve()
 
     def get_active_dataset_profile(self) -> Optional[DatasetProfileConfig]:
         """获取当前激活的数据集配置。"""
@@ -588,7 +652,7 @@ class TShapeConfig:
         Returns:
             SpatialBoundingBox实例
         """
-        from src.core.bounding_box import SpatialBoundingBox
+        from src.common import SpatialBoundingBox
         min_x, min_y, max_x, max_y = self.get_effective_bbox_tuple()
         return SpatialBoundingBox(
             min_x=min_x,
@@ -606,10 +670,19 @@ class TShapeConfig:
         return self.get_effective_bbox_tuple()
 
     def get_default_similarity_matrix_filename(self) -> str:
-        """获取默认相似度矩阵文件名。"""
+        """获取默认相似度矩阵文件名。
+
+        共享矩阵需要由会影响单元格集合的关键参数唯一标识，避免不同实验
+        误复用历史矩阵。
+        """
+        min_trajs = self.index.min_cell_trajs
+        min_trajs_token = "none" if min_trajs is None else str(min_trajs)
+        query_dist = (self.reward.query_distribution_type or "unknown").lower()
         return (
             f"sim_mtx_{self.datasets.active}_"
-            f"L{self.index.max_level}_"
+            f"{query_dist}_"
+            f"R{self.index.max_level}_"
+            f"M{min_trajs_token}_"
             f"A{self.index.alpha}_"
             f"B{self.index.beta}_"
             f"T{self.data.num_trajectories}.npz"
@@ -617,20 +690,16 @@ class TShapeConfig:
 
     def get_default_similarity_matrix_path(self) -> Path:
         """获取默认共享相似度矩阵路径。"""
-        from src.utils.path_manager import get_path_manager
-
-        return get_path_manager().get_similarity_matrix_path(
-            self.get_default_similarity_matrix_filename()
-        )
+        return self.paths.similarity_dir / self.get_default_similarity_matrix_filename()
 
     def get_effective_similarity_matrix_path(self) -> Path:
         """获取当前配置实际使用的相似度矩阵路径。"""
-        explicit_path = self.data.get_similarity_matrix_path()
+        explicit_path = self.data.get_similarity_matrix_path(self.paths)
         if explicit_path is not None:
             return explicit_path
         return self.get_default_similarity_matrix_path()
 
     def get_experiment_similarity_matrix_path(self) -> Path:
         """获取当前实验的私有相似度矩阵路径。"""
-        return self.experiment.get_similarity_dir() / self.get_default_similarity_matrix_filename()
+        return self.experiment.get_similarity_dir(self.paths) / self.get_default_similarity_matrix_filename()
 

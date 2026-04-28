@@ -2,7 +2,7 @@
 import sys
 from typing import Dict, List, Tuple
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.storage.base import TrajectoryStorage
 from src.utils.trajectory_geometry import compute_trajectory_bounding_box
 

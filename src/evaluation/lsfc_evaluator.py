@@ -26,7 +26,7 @@ class LSFCEvaluator:
             self.output_dir = Path(output_dir)
             self.output_dir.mkdir(parents=True, exist_ok=True)
         else:
-            self.output_dir = config.experiment.get_orders_dir()
+            self.output_dir = config.experiment.get_results_dir(config.paths)
 
         # 初始化底层导出器
         from src.rl.order_formatter import TrajectoryOrderFormatter
@@ -355,11 +355,9 @@ class LSFCEvaluator:
     def _load_saved_queries(self, filename: str):
         """加载保存的查询集"""
         import pickle
-        from src.utils.path_manager import get_path_manager
 
-        pm = get_path_manager()
-        # 使用实验名称获取正确的查询集目录
-        queries_dir = pm.get_queries_dir(self.config.experiment.name)
+        # 使用数据集名称获取查询集目录
+        queries_dir = self.config.paths.queries_dir / self.config.datasets.active
         query_path = queries_dir / filename
 
         if query_path.exists():

@@ -1,339 +1,368 @@
-# LETI
+# LearnedTShape
 
-## 项目概述
-
-本项目旨在通过强化学习优化 TShape 索引的编码设计，学习一个全局遍历顺序 O，使得相似度高的节点编码连续，从而最小化期望查询代价。
-
-### TShape 索引原理
-
-1. **扩大元素表示**：用一个合适的扩大元素（α×β cells）表示一条轨迹
-2. **编码方式**：深度优先遍历顺序（从层级1到层级g），在Cell中使用Z曲线顺序
-3. **查询方法**：找到所有相交/覆盖的扩大元素，经过形状过滤后合并为连续区间，执行扫描和refinement
-
-### 优化思路
-
-#### 1. 成本模型
-
-给定合并后的查询区间 $R_Q(O) = {[s_1, e_1), [s_2, e_2), ..., [s_m, e_m)}$，定义：
-
-- 总覆盖长度：$L_Q = Σ(e_i - s_i)$
-- 成本模型：$cost(Q;O) = τ_loc × m + τ_scan × L_Q$
-  - $m$: 连续区间数量
-  - $L_Q$: 每个区间内的索引数量
-
-**目标**：$min_O E_Q[cost(Q;O)]$
-
-#### 2. 强化学习设计
-
-**状态 (State)**
-
-- 当前访问位置
-- 已访问节点集合
-- 当前空间分布特征
-
-**动作 (Action)**
-从"未访问节点集合"中选择下一个节点，限制在：
-
-- 当前节点同层的最多8个节点（8个方位）
-- 当前节点下一层的4个子节点
-- 8个邻居节点的父节点
-
-**奖励 (Reward)**
-
-- **邻近性奖励**：基于几何距离，衡量空间邻近性
-- **相似性奖励**：基于Jaccard相似度，统计两个节点所包含轨迹的相似度
-- **全局目标**：与深度优先Z曲线baseline比较，必须优于原始设计才采纳
-
-## 快速开始
-
-### 1. 安装依赖
+## 1. 环境准备
 
 ```bash
-# 安装项目（开发模式）
 pip install -e .
+```
 
-# 或安装所有依赖
+如果不走开发模式，也可以：
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. 运行实验
+可选环境变量：
 
 ```bash
-# 调试训练（快速测试）
-python -m scripts.experiments.train_debug --config default.yaml
-
-# 运行完整训练流水线
-python -m scripts.experiments.run_pipeline --config default.yaml --name my_experiment
+set DATASET_TDRIVE_PATH=D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt
+set DATASET_CHENGDU_PATH=D:\dataset\Trajectory\Chengdu\cleaned_cd_taxi.txt
+set OUTPUT_DIR=D:\projects\LearnedTShape\outputs
 ```
 
-## 项目结构
+## 2. 目录与资源
 
-```
-LearnedTShape/
-│
-├── resource/                  # 资源目录
-│   ├── shared/                # 共享资源
-│   │   └── similarity/        # 相似度矩阵
-│   ├── queries/               # 查询数据集
-│   │   ├── uniform/
-│   │   ├── gaussian/
-│   │   └── skewed/
-│   ├── temp/                  # 临时文件
-│   │   ├── curves/            # 训练曲线
-│   │   └── orders/            # 遍历顺序
-│   ├── experiments/           # 实验输出
-│   │   ├── debug/
-│   │   ├── gaussian/
-│   │   └── skewed/
-├── default.yaml               # 默认配置
-│
-├── src/                       # 源代码
-│   ├── config.py              # 统一配置管理
-│   ├── core/                  # 基础几何结构（BoundingBox等）
-│   ├── data/                  # 数据加载（T-Drive、合成数据）
-│   ├── indexing/              # 四叉树索引与编码
-│   ├── features/              # 特征构建与轨迹统计
-│   ├── reward/                # 奖励计算
-│   ├── rl/                    # 强化学习（环境、Agent、PPO）
-│   ├── storage/               # 轨迹存储设计
-│   ├── training/              # 训练调度与流水线
-│   ├── evaluation/            # 评估工具
-│   └── utils/                 # 工具函数
-│
-├── scripts/                   # 脚本
-│   ├── experiments/           # 实验脚本
-│   │   ├── run_pipeline.py    # 完整训练流水线
-│   │   └── train_debug.py     # 调试训练
-│   ├── preprocess/            # 数据预处理
-│   │   ├── clean_tdrive.py    # 清洗T-Drive数据
-│   │   ├── clean_cdtaxi.py    # 清洗CD-Taxi数据
-│   │   ├── generate_query_dataset.py  # 生成查询数据集
-│   │   ├── similarity_matrix.py       # 计算相似度矩阵
-│   │   ├── split_query_datasets.py    # 划分数据集
-│   │   └── augment_trajectories.py    # 轨迹增强
-│   └── analyze/               # 结果分析
-│       ├── analyze_dataset.py         # 数据集分析
-│       ├── raw_traj_distribution.py   # 原始轨迹分布
-│       └── prune_traj_distribution.py # 剪枝后分布
-│
-├── docs/                      # 文档
-│   ├── gpu_acceleration_guide.md       # GPU加速指南
-│   ├── paper_introduction_optimized.md # 论文介绍
-│   ├── trajectory_storage_design.md    # 轨迹存储设计
-│   └── traversal_training_flowchart.md # 训练流程图
-│
-├── tests/                     # 测试
-│   ├── conftest.py            # pytest配置
-│   ├── test_config.py         # 配置测试
-│   └── test_generate_queries.py # 查询生成测试
-│
-├── pyproject.toml             # 项目配置
-├── requirements.txt           # 依赖列表
-└── pytest.ini               # pytest配置
-```
+### 2.1 配置目录
 
-## 配置系统
+- `configs/experiments/default/config.yaml`
+- `configs/experiments/debug/config.yaml`
+- `configs/experiments/test/config.yaml`
+- `configs/experiments/formal/config.yaml`
+- `configs/experiments/gaussian/config.yaml`
+- `configs/experiments/skewed/config.yaml`
+- `configs/experiments/uniform/config.yaml`
 
-项目使用统一的 YAML 配置文件，位于 `default.yaml`：
+参数扫描默认配置来源：
 
-```yaml
-experiment:
-  name: gaussian               # 实验名称
-  description: "高斯查询实验"   # 实验说明
+- `configs/order_sweeps/tdrive/<distribution>/config.yaml`
+- `configs/order_sweeps/cd_taxi/<distribution>/config.yaml`
 
-index:
-  max_level: 8                 # 四叉树最大层级
-  alpha: 3                     # 横向划分数
-  beta: 3                      # 纵向划分数
+### 2.2 输入资源目录
 
-data:
-  num_trajectories: -1         # 轨迹数量（-1表示全部）
-  source: dataset              # dataset / synthetic
+- `resource/queries/tdrive/`
+- `resource/queries/chengdu/`
+- `resource/matrices/similarity/`
+- `resource/orders/`
 
-query:
-  type: gaussian               # 查询类型: uniform/gaussian/skewed
-  dataset: gaussian_1000m      # 查询数据集名称
-  size: 200                    # 查询数量
+其中：
 
-reward:
-  tau_loc: 1.0                 # 定位成本系数
-  tau_scan: 0.5                # 扫描成本系数
-  gamma: 0.99                  # 折扣因子
+- `resource/queries/<dataset>/` 保存查询数据
+- `resource/matrices/similarity/` 保存共享相似度矩阵
+- `resource/orders/` 保存共享导出顺序，主要用于 XZ 顺序和批量扫参导出
 
-train:
-  num_episodes: 400            # 训练轮数
-  lr_actor: 0.0003             # Actor学习率
-  lr_critic: 0.0003            # Critic学习率
+### 2.3 输出目录
 
-network:
-  hidden_dims: [256, 256]      # 网络隐藏层
-  dropout: 0.1                 # Dropout率
+- `outputs/experiments/<experiment_name>/checkpoints/`
+- `outputs/experiments/<experiment_name>/results/`
+- `outputs/experiments/<experiment_name>/logs/`
+- `outputs/experiments/<experiment_name>/figures/`
+- `outputs/experiments/param_orders/`
+
+其中：
+
+- `checkpoints/` 保存模型与 metrics
+- `results/` 保存顺序 JSON、metadata、best_model_record
+- `logs/` 保存训练日志与 summary
+- `figures/` 保存训练曲线图
+- `param_orders/` 保存扫参汇总结果
+
+## 3. 数据要求
+
+### 3.1 轨迹数据
+
+配置里按数据集读取轨迹文件：
+
+- `tdrive`
+- `cdtaxi`
+
+轨迹路径来源有两种：
+
+- 在 YAML 里直接写 `datasets.profiles.<dataset>.trajectory_path`
+- 通过环境变量 `DATASET_TDRIVE_PATH` / `DATASET_CHENGDU_PATH`
+
+### 3.2 查询数据
+
+训练和评估要求查询目录下存在以下结构：
+
+```text
+resource/queries/tdrive/
+  gaussian/
+    queries_train.json
+    queries_val.json
+    queries_test.json
+  skewed/
+    queries_train.json
+    queries_val.json
+    queries_test.json
+  uniform/
+    queries_train.json
+    queries_val.json
+    queries_test.json
 ```
 
-## 数据预处理
+`chengdu` 同理。
 
-### 1. 清洗原始数据
+### 3.3 相似度矩阵
+
+如果配置里启用了 `use_similarity_matrix: true`，脚本会读取：
+
+- 显式指定的 `data.similarity_matrix_path`
+- 或默认共享矩阵目录 `resource/matrices/similarity/`
+
+默认共享矩阵文件名规则：
+
+- `sim_mtx_<dataset>_<query_distribution_type>_R<resolution>_M<minTrajs>_A<alpha>_B<beta>_T<num_trajectories>.npz`
+
+## 4. 各脚本运行命令
+
+### 4.1 生成查询数据
+
+按内置数据集配置生成：
 
 ```bash
-# 清洗T-Drive数据
-python -m scripts.preprocess.clean_tdrive
-
-# 清洗CD-Taxi数据
-python -m scripts.preprocess.clean_cdtaxi
+python scripts/preprocess/generate_queries.py --dataset tdrive
+python scripts/preprocess/generate_queries.py --dataset chengdu
 ```
 
-### 2. 生成查询数据集
+手动指定边界、轨迹文件和输出目录：
 
 ```bash
-# 生成不同类型查询
-python -m scripts.preprocess.generate_query_dataset --type uniform --size 200
-python -m scripts.preprocess.generate_query_dataset --type gaussian --size 200
-python -m scripts.preprocess.generate_query_dataset --type skewed --size 200
+python scripts/preprocess/generate_queries.py ^
+  --min-lon 115.29 ^
+  --min-lat 39.00 ^
+  --max-lon 117.83 ^
+  --max-lat 41.50 ^
+  --traj-path D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt ^
+  --output-dir resource/queries/tdrive
 ```
 
-### 3. 计算相似度矩阵
+产物：
+
+- `resource/queries/<dataset>/range/<distribution>/*.txt`
+- `resource/queries/<dataset>/<distribution>/queries_train.json`
+- `resource/queries/<dataset>/<distribution>/queries_val.json`
+- `resource/queries/<dataset>/<distribution>/queries_test.json`
+
+### 4.2 划分查询数据
+
+按默认目录处理：
 
 ```bash
-python -m scripts.preprocess.similarity_matrix --config default.yaml
+python scripts/preprocess/split_query_datasets.py --all
 ```
 
-### 4. 分析数据集
+指定目录和划分比例：
 
 ```bash
-# 分析轨迹分布
-python -m scripts.analyze.analyze_dataset
-
-# 查看原始分布
-python -m scripts.analyze.raw_traj_distribution
+python scripts/preprocess/split_query_datasets.py ^
+  --categories gaussian skewed uniform ^
+  --train-ratio 0.6 ^
+  --val-ratio 0.2 ^
+  --queries-dir resource/queries/tdrive ^
+  --output-dir resource/queries/tdrive
 ```
 
-## 实验管理
-
-### 创建新实验
-
-1. 复制默认配置：
-```bash
-cp default.yaml resource/experiments/my_exp/config.yaml
-```
-
-2. 编辑配置文件修改参数
-
-3. 运行实验：
-```bash
-python -m scripts.experiments.run_pipeline --config resource/experiments/my_exp/config.yaml --name my_exp
-```
-
-### 实验输出结构
-
-每个实验的输出保存在 `resource/experiments/<experiment_name>/` 目录：
-
-```
-resource/experiments/my_exp/
-├── config.yaml              # 配置副本
-├── models/                  # 模型检查点
-│   ├── model_ep_100.pth
-│   └── final_model.pth
-├── orders/                  # 学习到的遍历顺序
-│   └── learned_order.json
-├── curves/                  # 训练曲线
-│   └── training_curve.png
-└── logs/                    # 训练日志
-```
-
-## 数据格式
-
-### TDrive 数据
-
-TDrive数据文件格式：
-
-```
-3644-3644_1-MULTIPOINT Z((116.37497 39.85789 1201930859000), (116.37542 39.85764 1201930931000), ...)
-```
-
-每行代表一条轨迹，包含：
-
-- 轨迹ID：`ID-ID_SEQ`
-- 轨迹点：`(lon lat time)` 格式的点序列
-
-### CD-Taxi 数据
-
-CD-Taxi（成都出租车）数据文件格式：
-
-```
-[7dceae818438b836e3d306296b4ccfbd,[["2018-09-30 19:15:38.0",104.04235,30.69204],["2018-09-30 19:18:23.0",104.04389,30.69443]]]
-```
-
-每行代表一条轨迹，包含：
-
-- 轨迹ID：MD5哈希字符串
-- 轨迹点：`[timestamp, lon, lat]` 格式的点序列
-
-**地理范围**：成都市区域（约 102.0°E - 105.5°E, 29.5°N - 32.0°N）
-
-### 环境变量
+### 4.3 预计算相似度矩阵
 
 ```bash
-# 资源目录
-export RESOURCE_BASE_DIR=resource
-
-# 项目根目录（可选）
-export PROJECT_ROOT=/path/to/project
+python -m scripts.preprocess.similarity_matrix --config configs/experiments/default/config.yaml
 ```
 
-## 核心组件
-
-### 1. 配置管理 (`src/config.py`)
-
-- `TShapeConfig`: 统一配置类
-- 支持 YAML/JSON 格式
-- 模块化配置：experiment, index, data, query, reward, train, network
-
-### 2. 索引系统 (`src/indexing/`)
-
-- `QuadTreeIndex`: 四叉树索引构建
-- `TShapeEncoder`: TShape编码器
-- `ZOrderEncoder`: Z曲线编码
-
-### 3. 强化学习 (`src/rl/`)
-
-- `TraversalEnv`: 遍历环境
-- `ActorCriticAgent`: Actor-Critic智能体
-- `PPOUpdater`: PPO更新器
-- `RolloutBuffer`: 经验回放缓冲区
-
-### 4. 训练系统 (`src/training/`)
-
-- `TraversalTrainer`: 训练调度器
-- `TrainingPipeline`: 完整流水线
-- `CheckpointManager`: 检查点管理
-
-### 5. 评估系统 (`src/evaluation/`)
-
-- `TraversalEvaluator`: 遍历顺序评估
-- `LSFCEvaluator`: LSFC性能评估
-
-### 6. 数据与存储 (`src/data/`, `src/storage/`)
-
-- `TDriveLoader`: T-Drive数据加载
-- `SyntheticTrajectoryFactory`: 合成轨迹生成
-- `TrajectoryStore`: 轨迹存储管理
-
-
-## 运行测试
+指定数据集、输出位置和 worker 数：
 
 ```bash
-# 运行所有测试
-pytest
-
-# 运行特定测试
-pytest tests/test_config.py
-pytest tests/test_generate_queries.py
+python -m scripts.preprocess.similarity_matrix ^
+  --config configs/experiments/default/config.yaml ^
+  --dataset tdrive ^
+  --output-file resource/matrices/similarity/sim_mtx_tdrive_skewed_R8_M4_A2_B2_T-1.npz ^
+  --num-workers 8 ^
+  --force
 ```
 
-## 引用
+### 4.4 调试训练
 
-如果你在研究中使用了本项目，请引用：
+```bash
+python -m scripts.experiments.train_debug --config configs/experiments/debug/config.yaml
+```
 
+输出位置：
+
+- `outputs/experiments/debug/logs/`
+
+### 4.5 运行完整实验
+
+测试实验：
+
+```bash
+python -m scripts.experiments.run_pipeline --config configs/experiments/test/config.yaml --name test
 ```
-[添加引用信息]
+
+正式实验：
+
+```bash
+python -m scripts.experiments.run_pipeline --config configs/experiments/formal/config.yaml --name formal
 ```
+
+按分布基准配置运行：
+
+```bash
+python -m scripts.experiments.run_pipeline --config configs/experiments/gaussian/config.yaml --name gaussian
+python -m scripts.experiments.run_pipeline --config configs/experiments/skewed/config.yaml --name skewed
+python -m scripts.experiments.run_pipeline --config configs/experiments/uniform/config.yaml --name uniform
+```
+
+输出位置：
+
+- `outputs/experiments/<name>/checkpoints/`
+- `outputs/experiments/<name>/results/`
+- `outputs/experiments/<name>/logs/`
+- `outputs/experiments/<name>/figures/`
+
+### 4.6 导出默认 XZ 顺序
+
+使用默认配置：
+
+```bash
+python -m scripts.experiments.export_pruned_xz_order --config configs/experiments/default/config.yaml
+```
+
+覆盖关键参数：
+
+```bash
+python -m scripts.experiments.export_pruned_xz_order ^
+  --config configs/experiments/default/config.yaml ^
+  --dataset tdrive ^
+  --max-level 8 ^
+  --min-trajs 4 ^
+  --num-trajectories -1 ^
+  --output-file resource/orders/tdrive/skewed/pruned_xz_order.json
+```
+
+### 4.7 导出自适应划分
+
+```bash
+python -m scripts.experiments.export_adaptive_partitions --config configs/experiments/default/config.yaml
+```
+
+指定输出文件：
+
+```bash
+python -m scripts.experiments.export_adaptive_partitions ^
+  --config configs/experiments/default/config.yaml ^
+  --dataset tdrive ^
+  --output-file resource/orders/tdrive/skewed/adaptive_partitions.json
+```
+
+### 4.8 合并顺序文件与划分信息
+
+```bash
+python -m scripts.experiments.merge_order_with_partitions ^
+  --order-file resource/orders/tdrive/skewed/pruned_xz_order.json ^
+  --partitions-file resource/orders/tdrive/skewed/adaptive_partitions.json
+```
+
+另存为新文件：
+
+```bash
+python -m scripts.experiments.merge_order_with_partitions ^
+  --order-file resource/orders/tdrive/skewed/pruned_xz_order.json ^
+  --partitions-file resource/orders/tdrive/skewed/adaptive_partitions.json ^
+  --output-file resource/orders/tdrive/skewed/pruned_xz_order_merged.json
+```
+
+### 4.9 批量生成参数顺序
+
+XZ 批量导出：
+
+```bash
+python -m scripts.experiments.generate_param_orders ^
+  --distribution skewed ^
+  --dataset tdrive ^
+  --order-mode xz
+```
+
+RL 批量导出：
+
+```bash
+python -m scripts.experiments.generate_param_orders ^
+  --distribution gaussian ^
+  --dataset cdtaxi ^
+  --order-mode rl ^
+  --device auto ^
+  --tag rl_batch
+```
+
+全网格扫参：
+
+```bash
+python -m scripts.experiments.generate_param_orders ^
+  --distribution uniform ^
+  --dataset tdrive ^
+  --order-mode xz ^
+  --full-grid ^
+  --resolutions 6 7 8 9 10 ^
+  --min-trajs 2 4 6 8 ^
+  --alpha 2 ^
+  --beta 2 ^
+  --force
+```
+
+参数扫描配置默认读取：
+
+- `configs/order_sweeps/tdrive/<distribution>/config.yaml`
+- `configs/order_sweeps/cd_taxi/<distribution>/config.yaml`
+
+产物位置：
+
+- 汇总输出：`outputs/experiments/param_orders/<distribution_timestamp[_tag]>/`
+- XZ 顺序文件：`resource/orders/<dataset>/<distribution>/`
+- RL 单实验输出：`outputs/experiments/<case_name>/`
+
+## 5. 推荐执行顺序
+
+### 5.1 标准训练流程
+
+```bash
+python scripts/preprocess/generate_queries.py --dataset tdrive
+python -m scripts.preprocess.similarity_matrix --config configs/experiments/default/config.yaml --dataset tdrive
+python -m scripts.experiments.run_pipeline --config configs/experiments/test/config.yaml --name test
+```
+
+### 5.2 只导出非 RL 顺序
+
+```bash
+python -m scripts.experiments.export_pruned_xz_order --config configs/experiments/default/config.yaml --dataset tdrive
+python -m scripts.experiments.export_adaptive_partitions --config configs/experiments/default/config.yaml --dataset tdrive
+python -m scripts.experiments.merge_order_with_partitions --order-file resource/orders/tdrive/skewed/pruned_xz_order.json --partitions-file resource/orders/tdrive/skewed/adaptive_partitions.json
+```
+
+### 5.3 做参数扫描
+
+```bash
+python -m scripts.experiments.generate_param_orders --distribution skewed --dataset tdrive --order-mode xz
+```
+
+## 6. 故障检查
+
+### 6.1 查询文件缺失
+
+检查：
+
+- `resource/queries/<dataset>/<distribution>/queries_train.json`
+- `resource/queries/<dataset>/<distribution>/queries_val.json`
+- `resource/queries/<dataset>/<distribution>/queries_test.json`
+
+### 6.2 数据集路径缺失
+
+检查：
+
+- YAML 中的 `datasets.profiles.<dataset>.trajectory_path`
+- 或环境变量 `DATASET_TDRIVE_PATH` / `DATASET_CHENGDU_PATH`
+
+### 6.3 输出目录确认
+
+当前统一规则：
+
+- 输入资源看 `resource/`
+- 实验结果看 `outputs/experiments/`
+- 批量汇总看 `outputs/experiments/param_orders/`

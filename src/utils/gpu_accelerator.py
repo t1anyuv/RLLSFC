@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from src.indexing.quadtree_cell import QuadTreeCell
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 
 logger = logging.getLogger(__name__)
 

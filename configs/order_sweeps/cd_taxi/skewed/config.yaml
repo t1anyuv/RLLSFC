@@ -1,0 +1,49 @@
+experiment:
+  name: skewed
+  description: "CD-Taxi skewed distribution config"
+
+datasets:
+  active: cdtaxi
+  profiles:
+    tdrive:
+      description: "Beijing TDrive dataset."
+      trajectory_path: "D:/dataset/Trajectory/TDrive/complete_clean/tdrive.txt"
+      query_root: "resource/queries/tdrive"
+      min_x: 115.29
+      min_y: 39.00
+      max_x: 117.83
+      max_y: 41.50
+    cdtaxi:
+      description: "Chengdu CDTaxi dataset."
+      trajectory_path: "D:/dataset/Trajectory/Chengdu/cleaned_cd_taxi.txt"
+      query_root: "resource/queries/chengdu"
+      min_x: 104.04
+      min_y: 30.65
+      max_x: 104.14
+      max_y: 30.74
+
+index:
+  max_level: 8
+  alpha: 2
+  beta: 2
+  min_x: 104.04
+  min_y: 30.65
+  max_x: 104.14
+  max_y: 30.74
+  use_original_bbox: true
+  use_prune: true
+  min_cell_trajs: 4
+  quadcode_include_muted: false
+  enable_sig_optimize: true
+
+data:
+  num_trajectories: -1
+  use_similarity_matrix: true
+  similarity_matrix_path: null
+
+reward:
+  query_distribution_type: "skewed"
+
+paths:
+  resource_dir: resource
+  outputs_dir: outputs

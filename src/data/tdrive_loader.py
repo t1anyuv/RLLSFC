@@ -65,12 +65,19 @@ def parse_cleaned_record(line: str, fmt: str = 'txt') -> Optional[Trajectory]:
             if len(parts) < 4:
                 return None
             tid = int(parts[0])
-            # 提取坐标点
+            # 提取坐标点，兼容末尾分号
             point_strs = parts[3].split(';')
             points = []
             for ps in point_strs:
+                ps = ps.strip()
+                if not ps:
+                    continue
                 coords = ps.split(',')
+                if len(coords) < 2:
+                    continue
                 points.append((float(coords[0]), float(coords[1])))
+            if len(points) < 2:
+                return None
             return tid, points
 
         elif fmt == 'geojson':

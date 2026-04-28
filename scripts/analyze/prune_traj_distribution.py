@@ -8,7 +8,6 @@ import numpy as np
 from src.config import TShapeConfig
 from src.data.tdrive_loader import load_cleaned_dataset
 from src.indexing import QuadTreeIndex
-from src.utils.path_manager import get_path_manager
 
 
 def collect_index_stats(index: QuadTreeIndex) -> dict:
@@ -137,7 +136,10 @@ def run_pruning_analysis(data_path: str, max_level: int, alpha: int, beta: int, 
 
 if __name__ == "__main__":
     # 使用环境变量或默认路径
-    pm = get_path_manager()
-    PATH = pm.tdrive_data_path or os.environ.get('TDRIVE_DATA_PATH', 'data/tdrive/tdrive_cleaned.txt')
+    PATH = (
+        os.environ.get("DATASET_TDRIVE_PATH")
+        or os.environ.get("TDRIVE_DATA_PATH")
+        or "data/tdrive/tdrive_cleaned.txt"
+    )
     run_pruning_analysis(data_path=str(PATH), max_level=9, alpha=3, beta=3, min_cell_trajs=5)
 

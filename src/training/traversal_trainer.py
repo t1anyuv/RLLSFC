@@ -13,14 +13,13 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.config import NetworkConfig, TShapeConfig
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.evaluation import TraversalPerformanceEvaluator
 from src.indexing import QuadTreeIndex, QuadTreeCell, TraversalOrderEncoder
-from src.reward import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.rl import TraversalEnvironment, TraversalPolicyAgent
 from src.training.component_factory import TrainingComponentFactory
 from src.training.training_state import TrainingState
-from src.utils.path_manager import get_path_manager
 from src.utils.similarity_matrix import SimilarityMatrix
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
@@ -37,22 +36,19 @@ class TraversalTrainer:
         self.config = config
         self.network_config = network_config or self.config.network
 
-        # 应用路径配置并设置实验名称
-        self.config.paths.apply_to_path_manager()
-        pm = get_path_manager()
-        pm.set_experiment_name(self.config.experiment.name)
-        
         # 确保实验输出目录存在
-        self.config.experiment.get_models_dir().mkdir(parents=True, exist_ok=True)
-        self.config.experiment.get_orders_dir().mkdir(parents=True, exist_ok=True)
-        self.config.experiment.get_logs_dir().mkdir(parents=True, exist_ok=True)
-        self.config.experiment.get_curves_dir().mkdir(parents=True, exist_ok=True)
-        
+        exp_dir = self.config.experiment.get_output_dir(self.config.paths)
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        self.config.experiment.get_checkpoints_dir(self.config.paths).mkdir(parents=True, exist_ok=True)
+        self.config.experiment.get_results_dir(self.config.paths).mkdir(parents=True, exist_ok=True)
+        self.config.experiment.get_logs_dir(self.config.paths).mkdir(parents=True, exist_ok=True)
+        self.config.experiment.get_figures_dir(self.config.paths).mkdir(parents=True, exist_ok=True)
+
         # 设置日志
         from datetime import datetime
         from src.utils.logger import setup_logging
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = self.config.experiment.get_logs_dir() / f"training_{timestamp}.log"
+        log_file = self.config.experiment.get_logs_dir(self.config.paths) / f"training_{timestamp}.log"
         self.logger = setup_logging(f"Trainer_{self.config.experiment.name}", log_file=log_file)
         self.logger.info(f"=== 初始化实验: {self.config.experiment.name} ===")
 
@@ -489,12 +485,12 @@ class TraversalTrainer:
 
         # 保存检查点
         if episode % self.config.train.save_interval == 0:
-            pm = get_path_manager()
-            path = pm.get_model_dir() / f"ep{episode:06d}_val{val_imp:+.2f}.pth"
+            ckpt_dir = self.config.experiment.get_checkpoints_dir(self.config.paths)
+            path = ckpt_dir / f"ep{episode:06d}_val{val_imp:+.2f}.pth"
             agent.save(str(path))
             self.logger.info(f"模型已保存: {path}")
-            
-            metrics_path = pm.get_model_dir() / f"ep{episode:06d}_metrics.json"
+
+            metrics_path = ckpt_dir / f"ep{episode:06d}_metrics.json"
             self._save_checkpoint_metrics(metrics_path, episode, train_metrics, val_metrics, test_metrics)
 
     def _save_evaluation_history(self) -> None:
@@ -509,7 +505,7 @@ class TraversalTrainer:
             "test_improvements": self.state.test_improvement_history,
         }
         
-        history_path = self.config.experiment.get_logs_dir() / "evaluation_history.json"
+        history_path = self.config.experiment.get_logs_dir(self.config.paths) / "evaluation_history.json"
         self._write_json(history_path, history)
 
     def _save_checkpoint_metrics(self, path: Path, episode: int, 
@@ -541,14 +537,14 @@ class TraversalTrainer:
         
         # 最终模型保存 - 使用命名格式: final_{timestamp}_hgs{HGS}.pth
         final_model_name = f"final_{timestamp}_hgs{hgs:+.2f}_val{val_imp:+.2f}_test{test_imp:+.2f}.pth"
-        final_model_path = self.config.experiment.get_models_dir() / final_model_name
+        final_model_path = self.config.experiment.get_checkpoints_dir(self.config.paths) / final_model_name
         self.agent.save(str(final_model_path))
         self.logger.info(f"最终模型已保存: {final_model_path}")
         
-        latest_path = self.config.experiment.get_models_dir() / "latest.pth"
+        latest_path = self.config.experiment.get_checkpoints_dir(self.config.paths) / "latest.pth"
         self.agent.save(str(latest_path))
         
-        final_metrics_path = self.config.experiment.get_models_dir() / f"final_{timestamp}_metrics.json"
+        final_metrics_path = self.config.experiment.get_checkpoints_dir(self.config.paths) / f"final_{timestamp}_metrics.json"
         self._save_final_metrics(final_metrics_path, final_metrics, final_model_name)
         
         # 保存训练总结
@@ -564,8 +560,8 @@ class TraversalTrainer:
         
         self.logger.info("=== 自动选择最佳模型 ===")
         
-        model_dir = self.config.experiment.get_models_dir()
-        output_dir = self.config.experiment.get_orders_dir()
+        model_dir = self.config.experiment.get_checkpoints_dir(self.config.paths)
+        output_dir = self.config.experiment.get_results_dir(self.config.paths)
         
         # 创建 evaluator
         evaluator = LSFCEvaluator(self.config, output_dir=str(output_dir))
@@ -584,7 +580,7 @@ class TraversalTrainer:
         
         # 保存最佳模型记录
         evaluator._save_best_model_record(best_record)
-        self.logger.info(f"最佳模型记录已保存到 orders/best_model_record.json")
+        self.logger.info("最佳模型记录已保存到 results/best_model_record.json")
 
     def _save_final_metrics(self, path: Path, final_metrics: Dict[str, Any], model_name: str) -> None:
         """保存最终评估指标。"""
@@ -631,8 +627,7 @@ class TraversalTrainer:
     def _load_saved_queries(self, filename: str):
         """加载保存的查询集"""
         import pickle
-        pm = get_path_manager()
-        queries_dir = pm.get_queries_dir(self.config.experiment.name)
+        queries_dir = self.config.paths.queries_dir / self.config.datasets.active
         query_path = queries_dir / filename
         
         if query_path.exists():
@@ -670,7 +665,7 @@ class TraversalTrainer:
             }
         }
         
-        summary_path = self.config.experiment.get_logs_dir() / "training_summary.json"
+        summary_path = self.config.experiment.get_logs_dir(self.config.paths) / "training_summary.json"
         self._write_json(summary_path, summary, "训练总结已保存: {path}")
 
     def _should_stop_early(self) -> bool:
@@ -723,7 +718,8 @@ class TraversalTrainer:
     def _plot_training_curves(self) -> None:
         """绘制并保存训练过程曲线 (Reward, Loss, Improvement)。"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = self.config.experiment.get_curves_dir() / f"training_progress_{timestamp}.png"
+        save_path = self.config.experiment.get_figures_dir(self.config.paths) / f"training_progress_{timestamp}.png"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
 
         # (Reward, Loss, Improvement)
         fig, (ax_rev, ax_loss, ax_imp) = plt.subplots(1, 3, figsize=(20, 6))
@@ -788,6 +784,7 @@ class TraversalTrainer:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         plt.savefig(save_path, dpi=300)
         plt.close()
+        self.logger.info(f"训练曲线已保存: {save_path}")
 
     def describe_action_limit_schedule(self) -> Optional[Dict[str, int]]:
         """返回Top-K动作限制的调度参数。

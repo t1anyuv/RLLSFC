@@ -137,9 +137,9 @@ def main():
                         help='验证集比例 (默认: 0.2)')
     parser.add_argument('--seed', type=int, default=42,
                         help='随机种子 (默认: 42)')
-    parser.add_argument('--queries-dir', type=str, default='resource/queries_tdirve',
+    parser.add_argument('--queries-dir', type=str, default='resource/queries/tdrive',
                         help='查询文件目录')
-    parser.add_argument('--output-dir', type=str, default='resource/queries_tdirve',
+    parser.add_argument('--output-dir', type=str, default='resource/queries/tdrive',
                         help='输出目录')
 
     args = parser.parse_args()

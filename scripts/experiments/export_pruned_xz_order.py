@@ -17,12 +17,11 @@ from src.config import TShapeConfig
 from src.indexing import TraversalOrderEncoder
 from src.rl.order_formatter import TrajectoryOrderFormatter
 from src.training.component_factory import TrainingComponentFactory
-from src.utils.path_manager import get_path_manager
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="导出仅剪枝+形状优化后的默认 XZ 顺序")
-    parser.add_argument("--config", type=str, default="default.yaml", help="YAML 配置文件路径")
+    parser.add_argument("--config", type=str, default="configs/experiments/default/config.yaml", help="YAML 配置文件路径")
     parser.add_argument("--dataset", type=str, default=None, help="覆盖数据集，例如 tdrive / cdtaxi")
     parser.add_argument("--max-level", type=int, default=None, help="覆盖四叉树层级")
     parser.add_argument("--min-trajs", type=int, default=None, help="覆盖 min_cell_trajs")
@@ -59,8 +58,6 @@ def build_config(args: argparse.Namespace) -> TShapeConfig:
 def main() -> None:
     args = parse_args()
     config = build_config(args)
-    config.paths.apply_to_path_manager()
-    get_path_manager().set_experiment_name(config.experiment.name)
 
     factory = TrainingComponentFactory(config)
     quadtree = factory.create_quadtree()

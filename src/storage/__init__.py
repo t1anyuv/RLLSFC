@@ -66,9 +66,7 @@ def create_storage(
     elif mode == "disk":
         if storage_dir is None:
             # 使用默认路径
-            from src.utils.path_manager import get_path_manager
-            pm = get_path_manager()
-            storage_dir = pm.get_project_root() / "resource" / "storage"
+            storage_dir = Path("resource") / "storage"
         
         return DiskTrajectoryStorage(Path(storage_dir), cache_mb=cache_mb)
     

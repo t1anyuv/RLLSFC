@@ -1,0 +1,104 @@
+# Default experiment configuration for LearnedTShape
+# Usage:
+#   python -m scripts.experiments.run_pipeline --config configs/experiments/default/config.yaml --name default
+
+experiment:
+  name: default
+  description: "Default experiment configuration."
+
+datasets:
+  active: tdrive
+  profiles:
+    tdrive:
+      description: "Beijing TDrive trajectory dataset."
+      trajectory_path: null  # Set via env var or override
+      query_root: "resource/queries/tdrive"
+      min_x: 115.29
+      min_y: 39.00
+      max_x: 117.83
+      max_y: 41.50
+    chengdu:
+      description: "Chengdu CDTaxi trajectory dataset."
+      trajectory_path: null
+      query_root: "resource/queries/chengdu"
+      min_x: 104.04
+      min_y: 30.65
+      max_x: 104.13
+      max_y: 30.73
+
+index:
+  max_level: 8
+  alpha: 2
+  beta: 2
+  min_x: 115.29
+  min_y: 39.00
+  max_x: 117.83
+  max_y: 41.50
+  use_original_bbox: true
+  use_prune: true
+  min_cell_trajs: 4
+  quadcode_include_muted: false
+  enable_sig_optimize: true
+  parallel_signatures: true
+  signature_workers: null
+
+data:
+  num_trajectories: -1
+  source: "dataset"
+  use_similarity_matrix: true
+  similarity_matrix_path: null
+  similarity_num_workers: 4
+  similarity_use_gpu: true
+  similarity_gpu_batch_size: 1024
+  parallel_trajectory_assign: true
+  trajectory_assign_workers: null
+  storage_mode: "auto"
+  storage_dir: null
+  disk_cache_mb: 2048
+
+reward:
+  tau_loc: 1.0
+  tau_scan: 0.1
+  local_reward_weight: 0.4
+  global_reward_weight: 1.0
+  reward_schedule_episodes: 100
+  global_reward_start_scale: 0.25
+  local_reward_start_scale: 1.0
+  global_reward_scale: 2.0
+  global_reward_num_evals: 1
+  global_reward_query_sample_size: 64
+  global_reward_frontload_exponent: 1.5
+  query_distribution_type: "skewed"
+  query_sample_ratio: 1.0
+
+network:
+  hidden_dims: [256, 256]
+  device: auto
+  dropout: 0.1
+  state_dim: 14
+
+train:
+  lr_actor: 0.0003
+  lr_critic: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_episodes: 400
+  eval_interval: 10
+  save_interval: 10
+  eps_clip: 0.2
+  k_epochs: 4
+  gradient_clip_norm: 1.0
+  entropy_coef_start: 0.05
+  entropy_coef_end: 0.001
+  entropy_decay_episodes: -1
+  topk_actions: 30
+  topk_decay_episodes: 100
+  topk_multipliers: [2.0, 1.0]
+  enable_early_stopping: true
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.01
+  max_negative_streak: 5
+
+paths:
+  outputs_dir: "outputs"
+  resource_dir: "resource"

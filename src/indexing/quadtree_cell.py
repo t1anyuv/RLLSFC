@@ -1,7 +1,7 @@
 """四叉树单元格定义。"""
 from typing import Dict, List, Optional, Tuple
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 
 
 class QuadTreeCell:

@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 
 
 class SyntheticTrajectoryFactory:

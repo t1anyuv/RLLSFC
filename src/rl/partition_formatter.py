@@ -42,7 +42,7 @@ class AdaptivePartitionFormatter:
             self.output_dir = Path(output_dir)
             self.output_dir.mkdir(parents=True, exist_ok=True)
         else:
-            self.output_dir = config.experiment.get_orders_dir()
+            self.output_dir = config.experiment.get_results_dir(config.paths)
         self.logger = logger or setup_logging("AdaptivePartitionFormatter")
         self.config = config
 

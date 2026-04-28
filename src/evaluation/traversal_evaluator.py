@@ -2,11 +2,11 @@
 
 import numpy as np
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_cell import QuadTreeCell
 from src.indexing.quadtree_index import QuadTreeIndex
 from src.indexing.traversal_encoder import TraversalOrderEncoder
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.utils.signature import compute_query_signature
 
 TraversalOrderLookup = Dict[QuadTreeCell, int]

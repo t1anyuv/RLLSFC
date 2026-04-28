@@ -6,14 +6,14 @@ import argparse
 from pathlib import Path
 
 from src.config import TShapeConfig
-from src.reward import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.training.component_factory import TrainingComponentFactory
 from src.utils.similarity_matrix import SimilarityMatrix
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="预计算相似度矩阵")
-    parser.add_argument("--config", type=str, default="default.yaml", help="YAML 配置文件路径")
+    parser.add_argument("--config", type=str, default="configs/experiments/default/config.yaml", help="YAML 配置文件路径")
     parser.add_argument("--dataset", type=str, default=None, help="覆盖配置中的激活数据集，例如 tdrive / cdtaxi")
     parser.add_argument("--output-file", type=str, default=None, help="手动指定输出矩阵路径")
     parser.add_argument("--num-workers", type=int, default=None, help="相似度计算并行 worker 数")

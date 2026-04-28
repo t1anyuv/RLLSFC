@@ -40,7 +40,7 @@ DATASET_CONFIGS = {
         'max_lon': 117.83,
         'max_lat': 41.50,
         'traj_path': r'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt',
-        'output_dir': 'resource/queries_tdirve',
+        'output_dir': 'resource/queries/tdrive',
     },
     'chengdu': {
         'min_lon': 104.04,
@@ -48,7 +48,7 @@ DATASET_CONFIGS = {
         'max_lon': 104.13,
         'max_lat': 30.73,
         'traj_path': r'D:\dataset\Trajectory\Chengdu\cleaned_cd_taxi.txt',
-        'output_dir': 'resource/queries_chengdu',
+        'output_dir': 'resource/queries/chengdu',
     },
 }
 
@@ -300,7 +300,7 @@ def main():
         max_lon = args.max_lon or 117.83
         max_lat = args.max_lat or 41.50
         traj_path = args.traj_path or r'D:\dataset\Trajectory\TDrive\complete_clean\tdrive.txt'
-        output_dir = Path(args.output_dir or 'resource/queries_tdirve')
+        output_dir = Path(args.output_dir or 'resource/queries/tdrive')
     
     generator = QueryGenerator(
         min_lon=min_lon,

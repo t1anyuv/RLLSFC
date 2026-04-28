@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.config import TShapeConfig
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.utils.trajectory_geometry import compute_trajectory_bounding_box
 from src.data.tdrive_loader import load_cleaned_dataset
 

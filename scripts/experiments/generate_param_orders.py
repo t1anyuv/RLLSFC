@@ -18,14 +18,13 @@ from src.rl.order_formatter import TrajectoryOrderFormatter
 from src.rl.pipeline import LSFCPipeLine
 from src.training.component_factory import TrainingComponentFactory
 from src.utils.logger import setup_logging
-from src.utils.path_manager import get_path_manager
 
 
 DEFAULT_DISTRIBUTION = "skewed"
 DEFAULT_RESOLUTION = 8
 DEFAULT_MIN_TRAJS = 4
 DEFAULT_RESOLUTION_SWEEP = [6, 7, 8, 9, 10]
-DEFAULT_MIN_TRAJS_SWEEP = [2, 4, 6, 8]
+DEFAULT_MIN_TRAJS_SWEEP = [2, 4, 6, 8, 10]
 VALID_DISTRIBUTIONS = {"skewed", "uniform", "gaussian"}
 VALID_DATASETS = {"tdrive", "cdtaxi", "cd_taxi"}
 
@@ -64,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         "--base-config",
         type=str,
         default=None,
-        help="base config path; defaults to resource/experiments/{distribution}/config.yaml",
+        help="base config path; defaults to configs/order_sweeps/{dataset}/{distribution}/config.yaml",
     )
     parser.add_argument(
         "--default-resolution",
@@ -134,10 +133,10 @@ def parse_args() -> argparse.Namespace:
         help="order generation mode",
     )
     parser.add_argument(
-        "--resource-base-dir",
+        "--resource-dir",
         type=str,
         default=None,
-        help="optional resource base dir for generated outputs",
+        help="optional resource directory for shared inputs and generated order artifacts",
     )
     parser.add_argument(
         "--force",
@@ -170,7 +169,7 @@ def resolve_base_config(distribution: str, dataset: str, base_config: Optional[s
     if base_config:
         return Path(base_config).resolve()
     dataset_dir = dataset_dir_name(dataset)
-    return Path("resource") / "new-orders" / dataset_dir / distribution / "config.yaml"
+    return Path("configs") / "order_sweeps" / dataset_dir / distribution / "config.yaml"
 
 
 def clone_config(base_config: TShapeConfig) -> TShapeConfig:
@@ -183,7 +182,7 @@ def build_run_config(
     resolution: int,
     min_trajs: int,
     sweep_type: str,
-    resource_base_dir: Optional[str] = None,
+    resource_dir: Optional[str] = None,
     alpha: Optional[int] = None,
     beta: Optional[int] = None,
 ) -> TShapeConfig:
@@ -217,21 +216,30 @@ def build_run_config(
             f"resolution={resolution}, minTrajs={min_trajs}, "
             f"alpha={config.index.alpha}, beta={config.index.beta}"
         )
-    if resource_base_dir:
-        config.paths.resource_base_dir = resource_base_dir
+    if resource_dir:
+        config.paths.resource_dir = resource_dir
     config.data.similarity_matrix_path = str(config.get_experiment_similarity_matrix_path())
     return config
 
 
-def ensure_output_dir(distribution: str, tag: Optional[str], resource_base_dir: Optional[str] = None) -> Path:
+def ensure_output_dir(distribution: str, tag: Optional[str], resource_dir: Optional[str] = None) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dir_name = f"{distribution}_{timestamp}"
     if tag:
         dir_name = f"{dir_name}_{tag}"
-    root = Path(resource_base_dir) if resource_base_dir else Path("resource")
-    output_dir = root / "experiments" / "param_orders" / dir_name
+    del resource_dir
+    output_base = Path(os.environ.get("OUTPUT_DIR", "outputs"))
+    output_root = output_base / "experiments" / "param_orders"
+    output_dir = output_root / dir_name
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def get_case_output_dir(config: TShapeConfig, distribution: str, order_mode: str) -> Path:
+    if order_mode == "xz":
+        dataset_dir = dataset_dir_name(config.datasets.active)
+        return config.paths.orders_dir / dataset_dir / distribution
+    return config.experiment.get_results_dir(config.paths)
 
 
 def make_export_prefix(
@@ -267,10 +275,7 @@ def get_existing_case_record(
         config.index.alpha,
         config.index.beta,
     )
-    if order_mode == "xz":
-        order_dir = config.paths.order_dir
-    else:
-        order_dir = config.experiment.get_orders_dir()
+    order_dir = get_case_output_dir(config, distribution, order_mode)
     order_path = order_dir / f"{export_prefix}.json"
     metadata_path = order_dir / f"{export_prefix}_metadata.json"
 
@@ -278,9 +283,9 @@ def get_existing_case_record(
         has_outputs = order_path.exists() and metadata_path.exists()
         model_path = None
     else:
-        latest_model_path = config.experiment.get_models_dir() / "latest.pth"
-        best_model_record_path = config.experiment.get_orders_dir() / "best_model_record.json"
-        training_summary_path = config.experiment.get_logs_dir() / "training_summary.json"
+        latest_model_path = config.experiment.get_checkpoints_dir(config.paths) / "latest.pth"
+        best_model_record_path = config.experiment.get_results_dir(config.paths) / "best_model_record.json"
+        training_summary_path = config.experiment.get_logs_dir(config.paths) / "training_summary.json"
         has_model = latest_model_path.exists() or best_model_record_path.exists()
         has_outputs = order_path.exists() and metadata_path.exists() and training_summary_path.exists() and has_model
         model_path = str(latest_model_path) if latest_model_path.exists() else None
@@ -333,7 +338,7 @@ def run_single_case_xz(
         beta=config.index.beta,
     )
     xz_order = encoder.z_curve_order(include_muted=False)
-    orders_dir = config.paths.order_dir
+    orders_dir = get_case_output_dir(config, config.reward.query_distribution_type, "xz")
     orders_dir.mkdir(parents=True, exist_ok=True)
     formatter = TrajectoryOrderFormatter(output_dir=str(orders_dir), config=config)
     _, order_path = formatter.generate_config_file_from_order(
@@ -377,7 +382,7 @@ def run_single_case(
     min_trajs: int,
     sweep_type: str,
     order_mode: str,
-    resource_base_dir: Optional[str],
+    resource_dir: Optional[str],
     alpha: Optional[int],
     beta: Optional[int],
 ) -> Dict[str, Any]:
@@ -387,12 +392,10 @@ def run_single_case(
         resolution,
         min_trajs,
         sweep_type,
-        resource_base_dir=resource_base_dir,
+        resource_dir=resource_dir,
         alpha=alpha,
         beta=beta,
     )
-    config.paths.apply_to_path_manager()
-    get_path_manager().set_experiment_name(config.experiment.name)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
     export_prefix = make_export_prefix(
@@ -486,7 +489,7 @@ def append_case(
     base_config: TShapeConfig,
     force: bool,
     order_mode: str,
-    resource_base_dir: Optional[str],
+    resource_dir: Optional[str],
     alpha: Optional[int],
     beta: Optional[int],
 ) -> None:
@@ -496,7 +499,7 @@ def append_case(
         resolution,
         min_trajs,
         sweep_type,
-        resource_base_dir=resource_base_dir,
+        resource_dir=resource_dir,
         alpha=alpha,
         beta=beta,
     )
@@ -542,7 +545,7 @@ def append_case(
             min_trajs=min_trajs,
             sweep_type=sweep_type,
             order_mode=order_mode,
-            resource_base_dir=resource_base_dir,
+            resource_dir=resource_dir,
             alpha=alpha,
             beta=beta,
         )
@@ -618,7 +621,7 @@ def main() -> None:
         dropout=base_config.network.dropout,
         state_dim=base_config.network.state_dim,
     )
-    output_dir = ensure_output_dir(args.distribution, args.tag, args.resource_base_dir)
+    output_dir = ensure_output_dir(args.distribution, args.tag, args.resource_dir)
 
     records: List[Dict[str, Any]] = []
     manifest = {
@@ -652,7 +655,7 @@ def main() -> None:
                     base_config=base_config,
                     force=args.force,
                     order_mode=args.order_mode,
-                    resource_base_dir=args.resource_base_dir,
+                    resource_dir=args.resource_dir,
                     alpha=args.alpha,
                     beta=args.beta,
                 )
@@ -671,7 +674,7 @@ def main() -> None:
                     base_config=base_config,
                     force=args.force,
                     order_mode=args.order_mode,
-                    resource_base_dir=args.resource_base_dir,
+                    resource_dir=args.resource_dir,
                     alpha=args.alpha,
                     beta=args.beta,
                 )
@@ -690,7 +693,7 @@ def main() -> None:
                     base_config=base_config,
                     force=args.force,
                     order_mode=args.order_mode,
-                    resource_base_dir=args.resource_base_dir,
+                    resource_dir=args.resource_dir,
                     alpha=args.alpha,
                     beta=args.beta,
                 )

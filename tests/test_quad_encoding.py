@@ -1,7 +1,7 @@
 """测试四叉树编码/解码一致性"""
 import pytest
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.lsfc_loader import LSFCMappingLoader
 from src.indexing.quadtree_cell import QuadTreeCell
 

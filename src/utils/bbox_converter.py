@@ -2,7 +2,7 @@
 
 from typing import List, Tuple
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_cell import QuadTreeCell
 
 

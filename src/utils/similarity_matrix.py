@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from src.indexing.quadtree_cell import QuadTreeCell
 from src.indexing.quadtree_index import QuadTreeIndex
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 
 
 _WORKER_COST_EVALUATOR: Optional[TraversalCostEvaluator] = None

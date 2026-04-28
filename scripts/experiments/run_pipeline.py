@@ -1,8 +1,8 @@
 ﻿"""统一实验运行脚本：使用LSFCPipeLine进行模型训练与顺序导出
 
 Usage:
-    python -m scripts.experiments.run_pipeline --config resource/experiments/test/config.yaml --name test
-    python -m scripts.experiments.run_pipeline --config resource/experiments/formal/config.yaml --name formal
+    python -m scripts.experiments.run_pipeline --config configs/experiments/test/config.yaml --name test
+    python -m scripts.experiments.run_pipeline --config configs/experiments/formal/config.yaml --name formal
 """
 import argparse
 import json
@@ -11,13 +11,9 @@ import time
 import traceback
 from pathlib import Path
 
-from src.utils.path_manager import get_path_manager
 from src.config import NetworkConfig, TShapeConfig
 from src.rl.pipeline import LSFCPipeLine
 from src.utils.logger import setup_logging
-
-# 获取路径管理器
-path_manager = get_path_manager()
 
 
 def run_rl_indexing_experiment(config_path: str, exp_name: str, nt_config: NetworkConfig):
@@ -36,8 +32,7 @@ def run_rl_indexing_experiment(config_path: str, exp_name: str, nt_config: Netwo
     logger = setup_logging(f"Experiment_{exp_name.capitalize()}_{timestamp}")
     logger.info(f"=== 启动{exp_name}实验 ===")
 
-    # 应用路径配置
-    ts_config.paths.apply_to_path_manager()
+    # 设置环境变量
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
     # 3. 验证神经网络配置
@@ -69,8 +64,8 @@ def run_rl_indexing_experiment(config_path: str, exp_name: str, nt_config: Netwo
 
         # 6. 验证结果并输出摘要
         logger.info("步骤 2: 验证输出结果...")
-        orders_dir = Path(pipeline.resource_paths["orders"])
-        models_dir = Path(pipeline.resource_paths["models"])
+        orders_dir = Path(pipeline.resource_paths["results"])
+        models_dir = Path(pipeline.resource_paths["checkpoints"])
 
         # 检查关键导出文件（只检查JSON）
         check_files = [
@@ -122,7 +117,7 @@ if __name__ == "__main__":
         "--config",
         type=str,
         required=True,
-        help="YAML配置文件路径（如：resource/experiments/test/config.yaml）"
+        help="YAML配置文件路径（如：configs/experiments/test/config.yaml）"
     )
     parser.add_argument(
         "--name",

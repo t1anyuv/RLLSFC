@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_index import QuadTreeIndex
 
 

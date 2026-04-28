@@ -5,12 +5,12 @@ import unittest
 from shapely.geometry import LineString, box
 
 from src.config import TShapeConfig
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.data import load_cleaned_dataset
 from src.evaluation import TraversalPerformanceEvaluator
 from src.indexing.quadtree_index import QuadTreeIndex
 from src.indexing.traversal_encoder import TraversalOrderEncoder
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.rl.order_formatter import TrajectoryOrderFormatter
 from src.utils.path_manager import get_path_manager
 from src.utils.signature import compute_query_signature, compute_traj_signature

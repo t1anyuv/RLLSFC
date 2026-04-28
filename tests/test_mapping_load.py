@@ -1,7 +1,7 @@
 ﻿import unittest
 from pathlib import Path
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.lsfc_loader import LSFCMappingLoader
 from src.indexing.quadtree_cell import QuadTreeCell
 

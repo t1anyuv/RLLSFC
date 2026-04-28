@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Optional
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 
 
 Trajectory = Tuple[int, List[Tuple[float, float]]]

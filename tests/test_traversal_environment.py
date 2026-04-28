@@ -1,6 +1,6 @@
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_index import QuadTreeIndex
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.rl.traversal_environment import TraversalEnvironment
 
 

@@ -2,11 +2,11 @@
 
 import numpy as np
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.features.state_feature_builder import StateFeatureBuilder
 from src.indexing.quadtree_cell import QuadTreeCell
 from src.indexing.quadtree_index import QuadTreeIndex
-from src.reward.cost_evaluator import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 
 
 class TraversalEnvironment:

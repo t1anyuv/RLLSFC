@@ -1,12 +1,12 @@
 """工具模块"""
 from .path_manager import (
-    PathManager,
-    get_path_manager,
-    get_project_root,
+    resolve_path,
+    ensure_dir,
+    validate_path,
 )
 
 __all__ = [
-    'PathManager',
-    'get_path_manager',
-    'get_project_root',
+    'resolve_path',
+    'ensure_dir',
+    'validate_path',
 ]

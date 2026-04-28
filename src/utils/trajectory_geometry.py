@@ -3,7 +3,7 @@ Utility helpers for order related geometric operations.
 """
 from typing import Iterable, Tuple
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 
 
 def compute_trajectory_bounding_box(points: Iterable[Tuple[float, float]]) -> SpatialBoundingBox:

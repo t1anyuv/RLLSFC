@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.indexing.quadtree_index import QuadTreeIndex
 from src.storage import create_storage, InMemoryTrajectoryStorage, DiskTrajectoryStorage
 

@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from src.config import TShapeConfig
-from src.core.bounding_box import SpatialBoundingBox
+from src.common import SpatialBoundingBox
 from src.data import SyntheticTrajectoryFactory, normalize_trajectories, load_cleaned_dataset
 from src.indexing import QuadTreeIndex
-from src.reward import TraversalCostEvaluator
+from src.common import TraversalCostEvaluator
 from src.rl import TraversalEnvironment
 from src.storage import create_storage
 from src.utils.similarity_matrix import SimilarityMatrix
